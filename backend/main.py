@@ -154,7 +154,12 @@ async def stream_data(websocket: WebSocket, instrument_id: str, speed_multiplier
     logger.info(f"Streaming {len(records_to_stream)} records starting from index {start_index}")
     
     previous_timestamp = None
+    tick_count = 0
     for record in records_to_stream:
+        tick_count += 1
+        from exchange_state import exchange_state
+        record = exchange_state.mutate_market_stream(record, instrument_id)
+        
         # Format timestamps as strings for JSON serialization
         if hasattr(record['timestamp'], 'isoformat'):
             record_str_time = record['timestamp'].isoformat()
@@ -175,15 +180,22 @@ async def stream_data(websocket: WebSocket, instrument_id: str, speed_multiplier
                 sleep_time = time_diff / speed_multiplier
                 # Limit max sleep to 2 seconds to keep UI responsive and stream moving
                 sleep_time = min(sleep_time, 2.0)
-                await asyncio.sleep(sleep_time)
+                if sleep_time > 0.002:
+                    await asyncio.sleep(sleep_time)
+                else:
+                    # Yield control to the event loop every 10 ticks to keep other connections responsive
+                    if tick_count % 10 == 0:
+                        await asyncio.sleep(0)
         
         previous_timestamp = current_timestamp
         
         try:
+            depth_data = exchange_state.get_market_depth(instrument_id)
             await websocket.send_json({
                 "type": "tick",
                 "instrument": instrument_id,
-                "data": record
+                "data": record,
+                "depth": depth_data
             })
         except Exception as e:
             logger.error(f"Error sending tick: {e}")
@@ -255,17 +267,13 @@ async def websocket_market_data(websocket: WebSocket):
 
 
 # API Routers
-from api.v1.endpoints import trades, detection, triage
+from api.v1.endpoints import trades, detection, triage, orders, channels
 
 app.include_router(trades.router, prefix="/api/v1/trades", tags=["Trades"])
 app.include_router(detection.router, prefix="/api/v1/detect", tags=["Detection"])
 app.include_router(triage.router, prefix="/api/v1/triage", tags=["Triage"])
-
-# Additional routers to be implemented
-# app.include_router(graph.router, prefix="/api/v1/graph", tags=["Graph"])
-# app.include_router(risk.router, prefix="/api/v1/risk", tags=["Risk"])
-# app.include_router(workflows.router, prefix="/api/v1/workflows", tags=["Workflows"])
-# app.include_router(investigation.router, prefix="/api/v1/investigation", tags=["Investigation"])
+app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
+app.include_router(channels.router, prefix="/api/v1/channels", tags=["Channels"])
 
 
 if __name__ == "__main__":

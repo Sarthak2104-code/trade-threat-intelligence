@@ -2,17 +2,17 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts';
 import type { ISeriesApi, CandlestickData, HistogramData } from 'lightweight-charts';
 import cytoscape from 'cytoscape';
-import { 
-  ShieldAlert, 
-  User, 
-  Plus, 
-  Search, 
-  X, 
-  ChevronDown, 
+import {
+  ShieldAlert,
+  User,
+  Plus,
+  Search,
+  X,
+  ChevronDown,
   ChevronRight,
-  Activity, 
-  Sparkles, 
-  Clock, 
+  Activity,
+  Sparkles,
+  Clock,
   ArrowRightLeft,
   RefreshCw,
   Maximize2,
@@ -23,7 +23,11 @@ import {
   Trash,
   Check,
   Eye,
-  EyeOff
+  EyeOff,
+  ExternalLink,
+  FileText,
+  Play,
+  Cpu
 } from 'lucide-react';
 import './App.css';
 
@@ -120,6 +124,8 @@ interface Incident {
   status: 'PENDING' | 'ESCALATED' | 'DISMISSED';
   confidence: number;
   evidence: string;
+  rca?: string;
+  report_content?: string;
 }
 
 interface CompanyMetadata {
@@ -320,6 +326,7 @@ const formatHumanReadableTime = (isoString?: string | null) => {
 };
 
 // Shared helper to generate and trigger printing of high-fidelity incident reports
+// Shared helper to generate and trigger printing of high-fidelity incident reports
 const printIncidentReport = (incident: Incident) => {
   const getTraderInfo = (symbol: string) => {
     if (symbol === 'TATAELXSI') {
@@ -330,7 +337,37 @@ const printIncidentReport = (incident: Incident) => {
     return { id: 'TRD-001', name: 'System Algo', role: 'Automated Agent', location: 'Colocation Rack 4', ip: '10.10.50.111', status: 'ACTIVE' };
   };
   const trader = getTraderInfo(incident.symbol);
-  
+
+  const getSeverityColor = (sev: string) => {
+    switch (sev.toUpperCase()) {
+      case 'CRITICAL': return '#dc2626'; // dark red
+      case 'HIGH': return '#ea580c'; // dark orange
+      case 'MEDIUM': return '#d97706'; // dark amber
+      case 'LOW': return '#059669'; // dark green
+      default: return '#475569';
+    }
+  };
+
+  const getSeverityBgColor = (sev: string) => {
+    switch (sev.toUpperCase()) {
+      case 'CRITICAL': return 'rgba(220, 38, 38, 0.08)';
+      case 'HIGH': return 'rgba(234, 88, 12, 0.08)';
+      case 'MEDIUM': return 'rgba(217, 119, 6, 0.08)';
+      case 'LOW': return 'rgba(5, 150, 105, 0.08)';
+      default: return 'rgba(71, 85, 105, 0.08)';
+    }
+  };
+
+  const getSeverityBorderColor = (sev: string) => {
+    switch (sev.toUpperCase()) {
+      case 'CRITICAL': return 'rgba(220, 38, 38, 0.2)';
+      case 'HIGH': return 'rgba(234, 88, 12, 0.2)';
+      case 'MEDIUM': return 'rgba(217, 119, 6, 0.2)';
+      case 'LOW': return 'rgba(5, 150, 105, 0.2)';
+      default: return 'rgba(71, 85, 105, 0.2)';
+    }
+  };
+
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
   iframe.style.right = '0';
@@ -346,7 +383,8 @@ const printIncidentReport = (incident: Incident) => {
     doc.write(`
       <html>
         <head>
-          <title>TradeGuard Compliance Audit Report - ${incident.id}</title>
+          <title>TradeShield Compliance Audit Report - ${incident.id}</title>
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.26.0/cytoscape.min.js"></script>
           <style>
             @page {
               size: A4;
@@ -379,36 +417,35 @@ const printIncidentReport = (incident: Incident) => {
             
             /* Cover Page styles */
             .cover-page {
-              background-color: #0f0d2d;
-              color: #ffffff;
+              background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+              color: #0f172a;
               padding: 0;
               display: flex;
               flex-direction: column;
               justify-content: space-between;
               height: 297mm;
+              position: relative;
+              overflow: hidden;
             }
-            .cover-bg-container {
+            .cover-grid {
               position: absolute;
               top: 0;
               left: 0;
-              width: 100%;
-              height: 100%;
-              z-index: 1;
-            }
-            .cover-bg {
-              width: 100%;
-              height: 100%;
-              object-fit: cover;
-              opacity: 0.25;
-            }
-            .cover-overlay {
-              position: absolute;
-              top: 0;
-              left: 0;
-              width: 100%;
-              height: 100%;
-              background: linear-gradient(180deg, rgba(15, 13, 45, 0.95) 0%, rgba(30, 20, 80, 0.98) 100%);
+              right: 0;
+              bottom: 0;
+              background-image: linear-gradient(rgba(15, 23, 42, 0.02) 1px, transparent 1px),
+                                linear-gradient(90deg, rgba(15, 23, 42, 0.02) 1px, transparent 1px);
+              background-size: 30px 30px;
               z-index: 2;
+            }
+            #cy-report-container {
+              width: 100%;
+              height: 280px;
+              border: 1px solid #cbd5e1;
+              border-radius: 8px;
+              background-color: #f8fafc;
+              margin-bottom: 20px;
+              position: relative;
             }
             .cover-content {
               position: relative;
@@ -418,87 +455,107 @@ const printIncidentReport = (incident: Incident) => {
               flex-direction: column;
               justify-content: space-between;
               box-sizing: border-box;
-              padding: 35mm 25mm;
+              padding: 30mm 15mm 25mm 8mm;
+              width: 100%;
+            }
+            .cover-left-panel {
+              width: 46%;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+              height: 100%;
             }
             .cover-header {
-              border-bottom: 2px solid #8b5cf6;
-              padding-bottom: 20px;
+              margin-bottom: 40px;
             }
             .cover-brand {
-              font-size: 32px;
-              font-weight: 900;
-              letter-spacing: 2px;
-              color: #ffffff;
-              text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+              font-size: 42px;
+              font-weight: 800;
+              letter-spacing: 0.5px;
+              color: #0f172a;
               margin: 0;
+              line-height: 1.0;
             }
             .cover-brand span {
-              color: #c084fc;
+              color: #3f2185;
             }
             .cover-division {
+              font-size: 10px;
+              text-transform: uppercase;
+              letter-spacing: 4px;
+              color: #64748b;
+              margin-top: 8px;
+              font-weight: 700;
+            }
+            .cover-title-group {
+              margin-top: 25px;
+              margin-bottom: 25px;
+            }
+            .cover-title-large {
+              font-size: 58px;
+              font-weight: 900;
+              line-height: 1.0;
+              color: #0f172a;
+              text-transform: uppercase;
+              letter-spacing: -2px;
+            }
+            .cover-title-year {
+              font-size: 42px;
+              font-weight: 300;
+              color: #64748b;
+              letter-spacing: 2px;
+              margin-top: 6px;
+            }
+            .cover-description {
               font-size: 11px;
-              text-transform: uppercase;
-              letter-spacing: 3px;
-              color: #cbd5e1;
-              margin-top: 4px;
-              font-weight: 600;
-            }
-            .cover-body {
-              margin-top: 60px;
-              flex-grow: 1;
-              display: flex;
-              flex-direction: column;
-              justify-content: center;
-            }
-            .cover-title {
-              font-size: 38px;
-              font-weight: 800;
-              line-height: 1.2;
-              color: #ffffff;
-              margin: 0 0 15px 0;
-            }
-            .cover-subtitle {
-              font-size: 15px;
-              color: #a78bfa;
-              margin: 0;
-              font-weight: 500;
-              text-transform: uppercase;
-              letter-spacing: 1.5px;
+              color: #64748b;
+              line-height: 1.6;
+              margin-bottom: 35px;
+              max-width: 380px;
             }
             .cover-meta-box {
-              background: rgba(255, 255, 255, 0.04);
-              border: 1px solid rgba(139, 92, 246, 0.3);
-              border-radius: 8px;
+              background: rgba(255, 255, 255, 0.9);
+              border: 1px solid rgba(15, 23, 42, 0.08);
+              border-radius: 10px;
               padding: 24px;
-              margin-top: 40px;
               display: grid;
-              grid-template-columns: 1fr 1fr;
+              grid-template-columns: 1fr;
               gap: 16px;
+              box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.05);
             }
-            .cover-meta-item {
+            .cover-meta-row {
               display: flex;
-              flex-direction: column;
-              gap: 4px;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 1px solid #f1f5f9;
+              padding-bottom: 10px;
+            }
+            .cover-meta-row:last-child {
+              border-bottom: none;
+              padding-bottom: 0;
             }
             .cover-meta-label {
               font-size: 9px;
               text-transform: uppercase;
-              color: #c084fc;
-              letter-spacing: 1px;
-              font-weight: 700;
+              color: #64748b;
+              letter-spacing: 1.5px;
+              font-weight: 800;
             }
             .cover-meta-val {
               font-size: 13px;
-              font-weight: 600;
-              color: #ffffff;
+              font-weight: 700;
+              color: #0f172a;
             }
             .cover-footer {
-              font-size: 10px;
-              color: #94a3b8;
-              border-top: 1px solid rgba(255, 255, 255, 0.1);
+              font-size: 9px;
+              color: #64748b;
+              border-top: 1px solid rgba(15, 23, 42, 0.08);
               padding-top: 20px;
               display: flex;
               justify-content: space-between;
+              letter-spacing: 0.5px;
+              font-weight: 700;
+              width: 100%;
             }
             
             /* Page Header & Footer */
@@ -626,21 +683,15 @@ const printIncidentReport = (incident: Incident) => {
             .badge.passed { background: #ecfdf5; color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
             .badge.flagged { background: #fff1f2; color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.2); }
             
-            /* ASCII Graph Diagram style */
-            .ascii-graph-box {
-              background-color: #0f172a;
-              border-radius: 6px;
-              padding: 16px;
-              font-family: monospace;
-              font-size: 11px;
-              color: #38bdf8;
-              line-height: 1.4;
-              white-space: pre;
-              overflow-x: auto;
+            /* Cytoscape Report Graph Container style */
+            #cy-report-container {
+              width: 100%;
+              height: 280px;
+              border: 1px solid #cbd5e1;
+              border-radius: 8px;
+              background-color: #f8fafc;
               margin-bottom: 20px;
-              border-left: 4px solid #38bdf8;
               position: relative;
-              z-index: 5;
             }
             
             /* Faint Anti-Forgery Watermark */
@@ -664,6 +715,7 @@ const printIncidentReport = (incident: Incident) => {
               body {
                 background: #ffffff;
                 -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
               }
               .page {
                 border: none;
@@ -671,71 +723,121 @@ const printIncidentReport = (incident: Incident) => {
                 margin: 0;
                 padding: 20mm 15mm;
               }
+              .cover-page {
+                background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%) !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .card-panel {
+                background: #f8fafc !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              #cy-report-container {
+                background-color: #f8fafc !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
             }
           </style>
         </head>
         <body>
           <!-- PAGE 1: COVER PAGE -->
           <div class="page cover-page">
-            <div class="cover-bg-container">
-              <img src="https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80" class="cover-bg" />
-              <div class="cover-overlay"></div>
-            </div>
+            <svg style="position: absolute; top: 0; right: 0; width: 100%; height: 100%; z-index: 1;" viewBox="0 0 210 297" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="wave-dark" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#0f172a" />
+                  <stop offset="100%" stop-color="#1e293b" />
+                </linearGradient>
+                <linearGradient id="wave-teal" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#0d9488" />
+                  <stop offset="100%" stop-color="#0284c7" />
+                </linearGradient>
+                <linearGradient id="wave-light" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#38bdf8" />
+                  <stop offset="100%" stop-color="#a5f3fc" />
+                </linearGradient>
+              </defs>
+              
+              <!-- Draw the navy shape first (largest sweep) -->
+              <path d="M 130,0 C 98,90 120,210 168,297 L 210,297 L 210,0 Z" fill="url(#wave-dark)" />
+              
+              <!-- Draw the teal shape second -->
+              <path d="M 158,0 C 130,90 148,210 188,297 L 210,297 L 210,0 Z" fill="url(#wave-teal)" />
+              
+              <!-- Draw the light blue shape third (smallest sweep) -->
+              <path d="M 182,0 C 168,70 182,190 210,255 L 210,297 L 210,0 Z" fill="url(#wave-light)" />
+            </svg>
+            <div class="cover-grid"></div>
             <div class="cover-content">
-              <div class="cover-header">
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
-                  <img src="${window.location.origin}/brandlogo.png" style="height: 38px; width: auto; object-fit: contain;" />
-                  <div class="cover-brand">Trade<span>Guard</span></div>
+              <div class="cover-left-panel">
+                <div class="cover-header">
+                  <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 8px;">
+                    <img src="${window.location.origin}/brandlogo.png" style="height: 52px; width: auto; object-fit: contain;" />
+                    <div class="cover-brand">Trade<span>Shield</span></div>
+                  </div>
+                  <div class="cover-division">MARKET SURVEILLANCE & FORENSIC AUDIT</div>
                 </div>
-                <div class="cover-division">MARKET SURVEILLANCE & FORENSIC AUDIT</div>
-              </div>
-              
-              <div class="cover-body">
-                <div class="cover-title">Forensic Audit & Algorithmic Reconstruction Report</div>
-                <div class="cover-subtitle">COMPLIANCE VIOLATION REFERENCE & DEEP-DIVE ANALYSIS</div>
                 
-                <div class="cover-meta-box">
-                  <div class="cover-meta-item">
-                    <span class="cover-meta-label">Audit ID</span>
-                    <span class="cover-meta-val">${incident.id}</span>
+                <div>
+                  <div class="cover-title-group">
+                    <div class="cover-title-large">FORENSIC AUDIT</div>
+                    <div class="cover-title-large" style="color: #3f2185;">REPORT</div>
+                    <div class="cover-title-year">${new Date().getFullYear()}</div>
                   </div>
-                  <div class="cover-meta-item">
-                    <span class="cover-meta-label">Security Asset</span>
-                    <span class="cover-meta-val">${incident.symbol} (NSE India)</span>
+                  
+                  <div class="cover-description">
+                    This document contains confidential regulatory audit findings, deep-dive trade investigations, and algorithmic simulation results generated by the TradeShield compliance core.
                   </div>
-                  <div class="cover-meta-item">
-                    <span class="cover-meta-label">Threat Pattern</span>
-                    <span class="cover-meta-val">${incident.pattern}</span>
-                  </div>
-                  <div class="cover-meta-item">
-                    <span class="cover-meta-label">Severity Level</span>
-                    <span class="cover-meta-val">${incident.severity}</span>
+                  
+                  <div class="cover-meta-box">
+                    <div class="cover-meta-row">
+                      <span class="cover-meta-label">Audit ID</span>
+                      <span class="cover-meta-val" style="color: #3f2185; font-family: monospace;">#${incident.id}</span>
+                    </div>
+                    <div class="cover-meta-row">
+                      <span class="cover-meta-label">Security Asset</span>
+                      <span class="cover-meta-val" style="color: #0284c7;">${incident.symbol} (NSE India)</span>
+                    </div>
+                    <div class="cover-meta-row">
+                      <span class="cover-meta-label">Threat Pattern</span>
+                      <span class="cover-meta-val" style="color: #0f172a;">${incident.pattern}</span>
+                    </div>
+                    <div class="cover-meta-row">
+                      <span class="cover-meta-label">Severity Level</span>
+                      <span class="cover-meta-val">
+                        <span style="display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; border: 1px solid ${getSeverityBorderColor(incident.severity)}; background-color: ${getSeverityBgColor(incident.severity)}; color: ${getSeverityColor(incident.severity)}; text-transform: uppercase;">
+                          ${incident.severity}
+                        </span>
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              
-              <div class="cover-footer">
-                <div>CLASSIFICATION: COMPLIANCE REGULATORY CONFIDENTIAL</div>
-                <div>GENERATED: ${new Date().toLocaleString()}</div>
+                
+                <div class="cover-footer">
+                  <div style="font-weight: 800;">CONFIDENTIAL</div>
+                  <div style="margin-left: 20px;">GENERATED: ${new Date().toLocaleDateString()}</div>
+                </div>
               </div>
             </div>
           </div>
           
           <!-- PAGE 2: METADATA & COMPLIANCE REGISTRY -->
           <div class="page">
-            <div class="watermark">TradeGuard Compliance</div>
+            <div class="watermark">TradeShield Compliance</div>
             
             <div class="page-header">
               <div style="display: flex; align-items: center; gap: 8px;">
                 <img src="${window.location.origin}/brandlogo.png" style="height: 24px; width: auto; object-fit: contain;" />
-                <div class="page-header-logo">Trade<span>Guard</span></div>
+                <div class="page-header-logo">Trade<span>Shield</span></div>
               </div>
               <div class="page-header-title">Audit Metadata Registry</div>
             </div>
             
             <h2 class="section-header">1. System Metadata & Execution Environment</h2>
             <p class="narrative">
-              This section details the runtime execution environment of the TradeGuard surveillance core at the time of the flagged occurrence. 
+              This section details the runtime execution environment of the TradeShield surveillance core at the time of the flagged occurrence. 
               Data feeds were captured directly from the National Stock Exchange (NSE) direct colocation feed.
             </p>
             
@@ -806,19 +908,19 @@ const printIncidentReport = (incident: Incident) => {
             </table>
             
             <div class="page-footer">
-              <div>TradeGuard Forensic Audit Division</div>
+              <div>TradeShield Forensic Audit Division</div>
               <div>Page 2 of 3</div>
             </div>
           </div>
           
           <!-- PAGE 3: FORENSIC INVESTIGATION & RCA DETAIL -->
           <div class="page">
-            <div class="watermark">TradeGuard Compliance</div>
+            <div class="watermark">TradeShield Compliance</div>
             
             <div class="page-header">
               <div style="display: flex; align-items: center; gap: 8px;">
                 <img src="${window.location.origin}/brandlogo.png" style="height: 24px; width: auto; object-fit: contain;" />
-                <div class="page-header-logo">Trade<span>Guard</span></div>
+                <div class="page-header-logo">Trade<span>Shield</span></div>
               </div>
               <div class="page-header-title">Forensic & Root Cause Analysis</div>
             </div>
@@ -884,13 +986,7 @@ const printIncidentReport = (incident: Incident) => {
             </table>
             
             <h2 class="section-header">5. Threat Vector & Graph Relational Flow</h2>
-            <div class="ascii-graph-box">
-[TRADER APPARATUS: ${trader.id}] --- (124 orders/sec ingress) ---&gt; [NSE GATEWAY: 10.10.50.157]
-                                                                        |
-                                                                  (32ms Cancel Latency)
-                                                                        |
-                                                                        v
-[PRICE MANIPULATION INDICATOR: +0.84%] &lt;--- (Depth Pressure) --- [ORDER BOOK LEVEL 3]</div>
+            <div id="cy-report-container"></div>
             
             <h2 class="section-header">6. Forensic Narrative & Compliance Auditor Sign-Off</h2>
             <p class="narrative" style="font-size:11px; margin-bottom:15px;">
@@ -908,27 +1004,242 @@ const printIncidentReport = (incident: Incident) => {
               <div>
                 <div style="font-weight:bold; color:#64748b;">SURVEILLANCE LEAD</div>
                 <div style="margin-top:15px; border-bottom:1px solid #94a3b8; width:150px; height:12px;"></div>
-                <div style="margin-top:4px; font-size:10px; color:#94a3b8;">TradeGuard Security Operations</div>
+                <div style="margin-top:4px; font-size:10px; color:#94a3b8;">TradeShield Security Operations</div>
               </div>
             </div>
             
             <div class="page-footer">
-              <div>TradeGuard Forensic Audit Division</div>
+              <div>TradeShield Forensic Audit Division</div>
               <div>Page 3 of 3</div>
             </div>
           </div>
 
           <script>
+            // Initialize Cytoscape inside the report document container
+            const elements = [
+              // Core nodes
+              { 
+                data: { id: 'root', label: 'Incident:\\n${incident.id}' }, 
+                position: { x: 330, y: 140 },
+                classes: 'root-node'
+              },
+              { 
+                data: { id: 'security', label: 'Security:\\n${incident.symbol}' }, 
+                position: { x: 440, y: 50 },
+                classes: 'security-node'
+              },
+              { 
+                data: { id: 'pattern', label: 'Pattern:\\n${incident.pattern}' }, 
+                position: { x: 220, y: 230 },
+                classes: 'pattern-node'
+              },
+              { 
+                data: { id: 'trader', label: 'Account:\\n${trader.id}\\n${trader.name}' }, 
+                position: { x: 220, y: 140 },
+                classes: 'trader-node'
+              },
+              { 
+                data: { id: 'time', label: 'Detected:\\n${incident.timestamp}' }, 
+                position: { x: 220, y: 50 },
+                classes: 'time-node'
+              },
+              { 
+                data: { id: 'status', label: 'Audit Status:\\n${incident.status}' }, 
+                position: { x: 440, y: 230 },
+                classes: 'status-node'
+              },
+              
+              // Leaves/Logs
+              { 
+                data: { id: 'audit-auth', label: 'Audit Log:\\nSession active from\\n10.10.50.157' }, 
+                position: { x: 100, y: 140 },
+                classes: 'audit-node'
+              },
+              { 
+                data: { id: 'audit-risk', label: 'Audit Log:\\nBurst activity\\ndetected (+5.40)' }, 
+                position: { x: 550, y: 50 },
+                classes: 'audit-node'
+              },
+              { 
+                data: { id: 'audit-policy', label: 'Audit Log:\\nCompliance policy\\nPOL-002 triggered' }, 
+                position: { x: 550, y: 230 },
+                classes: 'audit-node'
+              },
+              { 
+                data: { id: 'audit-db', label: 'Audit Log:\\nPersisted to\\nsqlite: audit_log' }, 
+                position: { x: 550, y: 170 },
+                classes: 'audit-node'
+              },
+              { 
+                data: { id: 'time-window', label: 'Time Window:\\n10s scan interval' }, 
+                position: { x: 100, y: 50 },
+                classes: 'audit-node'
+              },
+              { 
+                data: { id: 'confidence-node', label: 'Confidence:\\n${(incident.confidence * 100).toFixed(0)}%' }, 
+                position: { x: 100, y: 230 },
+                classes: 'audit-node'
+              },
+
+              // Edges
+              { data: { source: 'time-window', target: 'time', label: 'Scan Config' }, classes: 'edge-time' },
+              { data: { source: 'audit-auth', target: 'trader', label: 'Terminal Auth' }, classes: 'edge-trader' },
+              { data: { source: 'confidence-node', target: 'pattern', label: 'AI Score' }, classes: 'edge-pattern' },
+              { data: { source: 'time', target: 'root', label: 'Trigger Time' }, classes: 'edge-time' },
+              { data: { source: 'trader', target: 'root', label: 'Subject' }, classes: 'edge-trader' },
+              { data: { source: 'pattern', target: 'root', label: 'Violated Rule' }, classes: 'edge-pattern' },
+              { data: { source: 'root', target: 'security', label: 'Target Asset' }, classes: 'edge-security' },
+              { data: { source: 'root', target: 'status', label: 'Audit Trail' }, classes: 'edge-status' },
+              { data: { source: 'security', target: 'audit-risk', label: 'Risk Analysis' }, classes: 'edge-security' },
+              { data: { source: 'status', target: 'audit-db', label: 'DB Log' }, classes: 'edge-status' },
+              { data: { source: 'status', target: 'audit-policy', label: 'Policy Action' }, classes: 'edge-status' },
+            ];
+
+            try {
+              const cy = cytoscape({
+                container: document.getElementById('cy-report-container'),
+                elements: elements,
+                style: [
+                  {
+                    selector: 'node',
+                    style: {
+                      'label': 'data(label)',
+                      'font-size': '8px',
+                      'text-valign': 'center',
+                      'text-halign': 'center',
+                      'text-wrap': 'wrap',
+                      'text-max-width': '80px',
+                      'width': '64px',
+                      'height': '64px',
+                      'color': '#0f172a',
+                      'background-color': '#ffffff',
+                      'border-width': '2px',
+                      'border-color': '#cbd5e1',
+                      'font-weight': 'bold',
+                      'font-family': 'Inter, system-ui, sans-serif'
+                    }
+                  },
+                  {
+                    selector: '.root-node',
+                    style: {
+                      'width': '76px',
+                      'height': '76px',
+                      'border-color': '#ef5350',
+                      'background-color': '#fef2f2',
+                      'font-weight': 'bold',
+                      'font-size': '9px'
+                    }
+                  },
+                  {
+                    selector: '.security-node',
+                    style: {
+                      'shape': 'round-rectangle',
+                      'width': '72px',
+                      'height': '54px',
+                      'border-color': '#3b82f6',
+                      'background-color': '#eff6ff'
+                    }
+                  },
+                  {
+                    selector: '.pattern-node',
+                    style: {
+                      'shape': 'hexagon',
+                      'width': '72px',
+                      'height': '64px',
+                      'border-color': '#a855f7',
+                      'background-color': '#faf5ff'
+                    }
+                  },
+                  {
+                    selector: '.trader-node',
+                    style: {
+                      'border-color': '#10b981',
+                      'background-color': '#ecfdf5',
+                      'font-weight': 'bold'
+                    }
+                  },
+                  {
+                    selector: '.time-node',
+                    style: {
+                      'shape': 'diamond',
+                      'border-color': '#64748b',
+                      'background-color': '#f8fafc'
+                    }
+                  },
+                  {
+                    selector: '.status-node',
+                    style: {
+                      'shape': 'rectangle',
+                      'width': '72px',
+                      'height': '46px',
+                      'border-color': '#f97316',
+                      'background-color': '#fff7ed'
+                    }
+                  },
+                  {
+                    selector: '.audit-node',
+                    style: {
+                      'shape': 'round-rectangle',
+                      'width': '90px',
+                      'height': '46px',
+                      'font-size': '7.5px',
+                      'border-color': '#94a3b8',
+                      'background-color': '#f1f5f9',
+                      'color': '#475569',
+                      'font-weight': 'normal'
+                    }
+                  },
+                  {
+                    selector: 'edge',
+                    style: {
+                      'width': 2,
+                      'line-color': '#cbd5e1',
+                      'target-arrow-color': '#cbd5e1',
+                      'target-arrow-shape': 'triangle',
+                      'arrow-scale': 1.1,
+                      'curve-style': 'bezier',
+                      'label': 'data(label)',
+                      'font-size': '7px',
+                      'color': '#64748b',
+                      'text-background-opacity': 1,
+                      'text-background-color': '#ffffff',
+                      'text-background-padding': '1px',
+                      'text-background-shape': 'roundrectangle',
+                      'line-style': 'dashed',
+                      'line-dash-pattern': [5, 3]
+                    }
+                  },
+                  { selector: '.edge-security', style: { 'line-color': '#3b82f6', 'target-arrow-color': '#3b82f6' } },
+                  { selector: '.edge-pattern', style: { 'line-color': '#a855f7', 'target-arrow-color': '#a855f7' } },
+                  { selector: '.edge-trader', style: { 'line-color': '#10b981', 'target-arrow-color': '#10b981' } },
+                  { selector: '.edge-time', style: { 'line-color': '#64748b', 'target-arrow-color': '#64748b' } },
+                  { selector: '.edge-status', style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316' } }
+                ],
+                layout: {
+                  name: 'preset',
+                  fit: true,
+                  padding: 15
+                },
+                userZoomingEnabled: false,
+                userPanningEnabled: false,
+                boxSelectionEnabled: false
+              });
+            } catch (err) {
+              console.error('Failed to render cytoscape report graph:', err);
+            }
+
             let triggered = false;
             function triggerPrint() {
               if (triggered) return;
               triggered = true;
-              window.focus();
-              window.print();
+              setTimeout(() => {
+                window.focus();
+                window.print();
+              }, 250);
             }
             window.onload = triggerPrint;
             // Fallback timeout in case window load event is delayed or fails
-            setTimeout(triggerPrint, 3500);
+            setTimeout(triggerPrint, 4000);
           </script>
         </body>
       </html>
@@ -996,13 +1307,49 @@ const IncidentGraph: React.FC<IncidentGraphProps> = ({ incident, isFullscreen, o
       case 'audit-risk':
         return `Risk Engine Vector: High cancel-to-fill ratio detected. Deviation is +5.40 standard deviations above historical rolling average.`;
       case 'audit-policy':
-        return `Policy Rule POL-002: Automatic routing config to Level-2 Compliance Desk for Wash Trading and Layering triggers.`;
+        return `Policy Rule: Automatic routing config to Level-2 Compliance Desk for Wash Trading and Layering triggers.`;
       case 'audit-db':
         return `DB Persistence: Record serialized into SQLite Audit Logs for compliance inspection and historical forensic playback.`;
       case 'time-window':
         return `Temporal Scan Range: 10-second aggregation window configured for automated threat intelligence pattern matching.`;
       case 'confidence-node':
         return `AI Confidence Level: ${(incident.confidence * 100).toFixed(0)}%. Computed using the random forest classifier trained on historical spoofing signals.`;
+      case 'spoof-bids':
+        return `Phantom Bids: Displays transient orders injected into the order book to trigger price movements, which are withdrawn before execution.`;
+      case 'cancel-burst':
+        return `Cancel Velocity: High-frequency order cancel rate, indicating a lack of bona-fide trading intent.`;
+      case 'layer-depth':
+        return `Book Depth: Populating multiple price layers to create a false impression of depth and liquidity.`;
+      case 'non-bona-fide':
+        return `Order Stack: Multi-level order lines generated to build pressure on bid/ask pricing.`;
+      case 'cross-trade':
+        return `Self-Trading / Cross-Trade: Orders matched internally within the same entity or affiliate accounts.`;
+      case 'entity-match':
+        return `Beneficial Owners: Matching trade accounts share PAN, promoter details, or sub-broker codes.`;
+      case 'stuff-rate':
+        return `Packet Flood: Extreme quote submission rates intended to saturate the exchange gateway.`;
+      case 'latency-skew':
+        return `Latency Arbitrage: Slowing down retail feed pricing updates to capture arbitrage margins.`;
+      case 'pump-hype':
+        return `Volume Spike: Anomalous surge in buying volume, typical of coordinated pump events.`;
+      case 'dump-sell':
+        return `Coordinated Block Sell: Large volume dump orders executed to lock in trading profits.`;
+      case 'escalation-desk':
+        return `Escalated Desk: The incident has been routed to the L2 Compliance desk for advanced forensic triage.`;
+      case 'escalation-timer':
+        return `SLA Active: Corporate compliance requires escalation analysis within a 24-hour response window.`;
+      case 'triage-queue':
+        return `Triage Queue: The case is currently awaiting manual review by a Compliance Officer.`;
+      case 'dismissal-reason':
+        return `Dismissal Code: Triage resolved this incident as a False Positive or authorized hedging transaction.`;
+      case 'suspend-account':
+        return `Mitigation Response: Suspend Account Access. Automated enforcement revoked API keys and blocked the account.`;
+      case 'regulatory-filing':
+        return `SEBI Filing: Form filled and submitted to the regulator database queue for suspicious activity.`;
+      case 'throttle-ingress':
+        return `Mitigation Response: Quote rate limit throttled by 50% on all ingress ports to reduce gateway impact.`;
+      case 'warn-desk':
+        return `Compliance Warning: Written notice generated and emailed to the account administrator desk.`;
       default:
         return 'Forensic entity log details.';
     }
@@ -1044,88 +1391,275 @@ const IncidentGraph: React.FC<IncidentGraphProps> = ({ incident, isFullscreen, o
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Define elements with horizontal ranking positions
-    const elements: cytoscape.ElementDefinition[] = [
-      // Core nodes
-      { 
-        data: { id: 'root', label: `Incident:\n${incident.id}` }, 
-        position: { x: 340, y: 190 },
-        classes: 'root-node'
-      },
-      { 
-        data: { id: 'security', label: `Security:\n${incident.symbol}` }, 
-        position: { x: 480, y: 70 },
-        classes: 'security-node'
-      },
-      { 
-        data: { id: 'pattern', label: `Pattern:\n${incident.pattern}` }, 
-        position: { x: 200, y: 310 },
-        classes: 'pattern-node'
-      },
-      { 
-        data: { id: 'trader', label: `Account:\n${trader.id}\n${trader.name}` }, 
-        position: { x: 200, y: 190 },
-        classes: 'trader-node'
-      },
-      { 
-        data: { id: 'time', label: `Detected:\n${incident.timestamp}` }, 
-        position: { x: 200, y: 70 },
-        classes: 'time-node'
-      },
-      { 
-        data: { id: 'status', label: `Audit Status:\n${incident.status}` }, 
-        position: { x: 480, y: 310 },
-        classes: 'status-node'
-      },
+    // Define columns to hold our nodes based on structural stages
+    const cols: { [key: string]: Array<{ id: string; label: string; classes: string; edge?: any }> } = {
+      col1: [], // Ingress / Inputs
+      col2: [], // Triggers / Source Metadata
+      col3: [], // Main Incident Hub
+      col4: [], // Targets / Status
+      col5: []  // Mitigation / Audit Logs / Actions
+    };
+
+    // 1. Core nodes
+    cols.col3.push({
+      id: 'root',
+      label: `Incident:\n${incident.id}`,
+      classes: 'root-node'
+    });
+    
+    cols.col4.push({
+      id: 'security',
+      label: `Security:\n${incident.symbol}`,
+      classes: 'security-node',
+      edge: { source: 'root', target: 'security', label: 'Target Asset', classes: 'edge-security' }
+    });
+
+    cols.col2.push({
+      id: 'trader',
+      label: `Account:\n${trader.id}\n${trader.name}`,
+      classes: 'trader-node',
+      edge: { source: 'trader', target: 'root', label: 'Subject', classes: 'edge-trader' }
+    });
+
+    cols.col2.push({
+      id: 'time',
+      label: `Detected:\n${incident.timestamp}`,
+      classes: 'time-node',
+      edge: { source: 'time', target: 'root', label: 'Trigger Time', classes: 'edge-time' }
+    });
+
+    cols.col2.push({
+      id: 'pattern',
+      label: `Pattern:\n${incident.pattern}`,
+      classes: 'pattern-node',
+      edge: { source: 'pattern', target: 'root', label: 'Violated Rule', classes: 'edge-pattern' }
+    });
+
+    cols.col4.push({
+      id: 'status',
+      label: `Audit Status:\n${incident.status}`,
+      classes: 'status-node',
+      edge: { source: 'root', target: 'status', label: 'Audit Trail', classes: 'edge-status' }
+    });
+
+    // 2. Ingress & Auth Nodes (Col 1)
+    cols.col1.push({
+      id: 'time-window',
+      label: 'Time Window:\n10s scan interval',
+      classes: 'audit-node',
+      edge: { source: 'time-window', target: 'time', label: 'Scan Config', classes: 'edge-time' }
+    });
+
+    cols.col1.push({
+      id: 'confidence-node',
+      label: `Confidence:\n${(incident.confidence * 100).toFixed(0)}%`,
+      classes: 'audit-node',
+      edge: { source: 'confidence-node', target: 'pattern', label: 'AI Score', classes: 'edge-pattern' }
+    });
+
+    cols.col1.push({
+      id: 'audit-auth',
+      label: 'Audit Log:\nSession active from\n10.10.50.157',
+      classes: 'audit-node',
+      edge: { source: 'audit-auth', target: 'trader', label: 'Terminal Auth', classes: 'edge-trader' }
+    });
+
+    // 3. Dynamic Pattern-Specific Nodes (Col 2 - attached to pattern/trader/root)
+    const normalizedPattern = incident.pattern.toUpperCase().replace(/\s+/g, '_');
+    if (normalizedPattern.includes('SPOOF')) {
+      cols.col2.push({
+        id: 'spoof-bids',
+        label: 'Phantom Bids:\nLarge order imbalance',
+        classes: 'audit-node',
+        edge: { source: 'spoof-bids', target: 'pattern', label: 'Spoof Evidence', classes: 'edge-pattern' }
+      });
+      cols.col2.push({
+        id: 'cancel-burst',
+        label: 'Cancel Velocity:\nRapid withdrawals',
+        classes: 'audit-node',
+        edge: { source: 'cancel-burst', target: 'trader', label: 'Execution Behavior', classes: 'edge-trader' }
+      });
+    } else if (normalizedPattern.includes('LAYERING')) {
+      cols.col2.push({
+        id: 'layer-depth',
+        label: 'Book Depth:\nMulti-level quotes',
+        classes: 'audit-node',
+        edge: { source: 'layer-depth', target: 'pattern', label: 'Layering Signal', classes: 'edge-pattern' }
+      });
+      cols.col2.push({
+        id: 'non-bona-fide',
+        label: 'Order Stack:\nNon-bona-fide volume',
+        classes: 'audit-node',
+        edge: { source: 'non-bona-fide', target: 'trader', label: 'Trader Signature', classes: 'edge-trader' }
+      });
+    } else if (normalizedPattern.includes('WASH')) {
+      cols.col2.push({
+        id: 'cross-trade',
+        label: 'Matched Order:\nInternal cross-trade',
+        classes: 'audit-node',
+        edge: { source: 'cross-trade', target: 'pattern', label: 'Wash Indication', classes: 'edge-pattern' }
+      });
+      cols.col2.push({
+        id: 'entity-match',
+        label: 'Beneficial Owner:\nSame corporate account',
+        classes: 'audit-node',
+        edge: { source: 'entity-match', target: 'trader', label: 'Account Group', classes: 'edge-trader' }
+      });
+    } else if (normalizedPattern.includes('STUFF') || normalizedPattern.includes('QUOTE')) {
+      cols.col2.push({
+        id: 'stuff-rate',
+        label: 'Packet Flood:\nMicrosecond burst',
+        classes: 'audit-node',
+        edge: { source: 'stuff-rate', target: 'pattern', label: 'Quote Spikes', classes: 'edge-pattern' }
+      });
+      cols.col2.push({
+        id: 'latency-skew',
+        label: 'Latency Skew:\nFeed delay',
+        classes: 'audit-node',
+        edge: { source: 'latency-skew', target: 'trader', label: 'System Action', classes: 'edge-trader' }
+      });
+    } else if (normalizedPattern.includes('PUMP') || normalizedPattern.includes('DUMP')) {
+      cols.col2.push({
+        id: 'pump-hype',
+        label: 'Social Vector:\nVolume spike',
+        classes: 'audit-node',
+        edge: { source: 'pump-hype', target: 'pattern', label: 'Pump Signal', classes: 'edge-pattern' }
+      });
+      cols.col2.push({
+        id: 'dump-sell',
+        label: 'Dump Phase:\nCoordinated block sell',
+        classes: 'audit-node',
+        edge: { source: 'dump-sell', target: 'trader', label: 'Sell-off', classes: 'edge-trader' }
+      });
+    }
+
+    // 4. Ingress / Risk Nodes (Col 5)
+    cols.col5.push({
+      id: 'audit-risk',
+      label: 'Audit Log:\nBurst activity\ndetected (+5.40)',
+      classes: 'audit-node',
+      edge: { source: 'security', target: 'audit-risk', label: 'Risk Analysis', classes: 'edge-security' }
+    });
+
+    cols.col5.push({
+      id: 'audit-db',
+      label: 'Audit Log:\nPersisted to\nsqlite: audit_log',
+      classes: 'audit-node',
+      edge: { source: 'status', target: 'audit-db', label: 'DB Log', classes: 'edge-status' }
+    });
+
+    cols.col5.push({
+      id: 'audit-policy',
+      label: 'Audit Log:\nCompliance policy\ntriggered',
+      classes: 'audit-node',
+      edge: { source: 'status', target: 'audit-policy', label: 'Policy Action', classes: 'edge-status' }
+    });
+
+    // 5. Dynamic Status-Specific Nodes (Col 5)
+    if (incident.status === 'ESCALATED') {
+      cols.col5.push({
+        id: 'escalation-desk',
+        label: 'Escalated Desk:\nL2 Compliance review',
+        classes: 'audit-node',
+        edge: { source: 'status', target: 'escalation-desk', label: 'Routing', classes: 'edge-status' }
+      });
+      cols.col5.push({
+        id: 'escalation-timer',
+        label: 'SLA Active:\n24h response SLA',
+        classes: 'audit-node',
+        edge: { source: 'escalation-desk', target: 'escalation-timer', label: 'Deadline', classes: 'edge-status' }
+      });
+    } else if (incident.status === 'DISMISSED') {
+      cols.col5.push({
+        id: 'dismissal-reason',
+        label: 'Dismissal:\nLegitimate Hedge / FP',
+        classes: 'audit-node',
+        edge: { source: 'status', target: 'dismissal-reason', label: 'Closure Code', classes: 'edge-status' }
+      });
+    } else if (incident.status === 'PENDING') {
+      cols.col5.push({
+        id: 'triage-queue',
+        label: 'Triage Queue:\nAwaiting review',
+        classes: 'audit-node',
+        edge: { source: 'status', target: 'triage-queue', label: 'Routing', classes: 'edge-status' }
+      });
+    }
+
+    // 6. Dynamic Severity/Mitigation Action Nodes (Col 5)
+    if (incident.severity === 'CRITICAL') {
+      cols.col5.push({
+        id: 'suspend-account',
+        label: 'Mitigation Response:\nSuspend Account Access',
+        classes: 'audit-node',
+        edge: { source: 'root', target: 'suspend-account', label: 'Enforcement', classes: 'edge-security' }
+      });
+      cols.col5.push({
+        id: 'regulatory-filing',
+        label: 'External Filing:\nSEBI suspicious trade file',
+        classes: 'audit-node',
+        edge: { source: 'suspend-account', target: 'regulatory-filing', label: 'Filing', classes: 'edge-security' }
+      });
+    } else if (incident.severity === 'HIGH') {
+      cols.col5.push({
+        id: 'throttle-ingress',
+        label: 'Mitigation Response:\nThrottle Quote Rate (50%)',
+        classes: 'audit-node',
+        edge: { source: 'root', target: 'throttle-ingress', label: 'Enforcement', classes: 'edge-security' }
+      });
+    } else if (incident.severity === 'MEDIUM') {
+      cols.col5.push({
+        id: 'warn-desk',
+        label: 'Mitigation Response:\nCompliance Warning Issued',
+        classes: 'audit-node',
+        edge: { source: 'root', target: 'warn-desk', label: 'Notification', classes: 'edge-security' }
+      });
+    }
+
+    const xCoords: { [key: string]: number } = {
+      col1: 60,
+      col2: 210,
+      col3: 360,
+      col4: 510,
+      col5: 660
+    };
+
+    const elements: cytoscape.ElementDefinition[] = [];
+    const edges: any[] = [];
+
+    // Calculate positions and create element definitions
+    Object.keys(cols).forEach((colKey) => {
+      const nodeList = cols[colKey];
+      const count = nodeList.length;
+      const x = xCoords[colKey];
       
-      // Leaves/Logs
-      { 
-        data: { id: 'audit-auth', label: `Audit Log:\nSession active from\n10.10.50.157` }, 
-        position: { x: 60, y: 190 },
-        classes: 'audit-node'
-      },
-      { 
-        data: { id: 'audit-risk', label: `Audit Log:\nBurst activity\ndetected (+5.40)` }, 
-        position: { x: 620, y: 70 },
-        classes: 'audit-node'
-      },
-      { 
-        data: { id: 'audit-policy', label: `Audit Log:\nCompliance policy\nPOL-002 triggered` }, 
-        position: { x: 620, y: 310 },
-        classes: 'audit-node'
-      },
-      { 
-        data: { id: 'audit-db', label: `Audit Log:\nPersisted to\nsqlite: audit_log` }, 
-        position: { x: 620, y: 220 },
-        classes: 'audit-node'
-      },
-      { 
-        data: { id: 'time-window', label: `Time Window:\n10s scan interval` }, 
-        position: { x: 60, y: 70 },
-        classes: 'audit-node'
-      },
-      { 
-        data: { id: 'confidence-node', label: `Confidence:\n${(incident.confidence * 100).toFixed(0)}%` }, 
-        position: { x: 60, y: 310 },
-        classes: 'audit-node'
-      },
+      nodeList.forEach((node, index) => {
+        let y = 190;
+        if (count > 1) {
+          const spacing = 340 / (count - 1 || 1);
+          y = 50 + index * spacing;
+          
+          const maxSpacing = 85;
+          const totalHeight = (count - 1) * Math.min(spacing, maxSpacing);
+          const startY = 190 - (totalHeight / 2);
+          y = startY + index * Math.min(spacing, maxSpacing);
+        }
+        
+        elements.push({
+          data: { id: node.id, label: node.label },
+          position: { x, y },
+          classes: node.classes
+        });
 
-      // Edges with left-to-right directional flow
-      { data: { source: 'time-window', target: 'time', label: 'Scan Config' }, classes: 'edge-time' },
-      { data: { source: 'audit-auth', target: 'trader', label: 'Terminal Auth' }, classes: 'edge-trader' },
-      { data: { source: 'confidence-node', target: 'pattern', label: 'AI Score' }, classes: 'edge-pattern' },
+        if (node.edge) {
+          edges.push({
+            data: node.edge,
+            classes: node.edge.classes
+          });
+        }
+      });
+    });
 
-      { data: { source: 'time', target: 'root', label: 'Trigger Time' }, classes: 'edge-time' },
-      { data: { source: 'trader', target: 'root', label: 'Subject' }, classes: 'edge-trader' },
-      { data: { source: 'pattern', target: 'root', label: 'Violated Rule' }, classes: 'edge-pattern' },
-
-      { data: { source: 'root', target: 'security', label: 'Target Asset' }, classes: 'edge-security' },
-      { data: { source: 'root', target: 'status', label: 'Audit Trail' }, classes: 'edge-status' },
-
-      { data: { source: 'security', target: 'audit-risk', label: 'Risk Analysis' }, classes: 'edge-security' },
-      { data: { source: 'status', target: 'audit-db', label: 'DB Log' }, classes: 'edge-status' },
-      { data: { source: 'status', target: 'audit-policy', label: 'Policy Action' }, classes: 'edge-status' },
-    ];
+    elements.push(...edges);
 
     // Initialize Cytoscape
     const cy = cytoscape({
@@ -1354,7 +1888,7 @@ const IncidentGraph: React.FC<IncidentGraphProps> = ({ incident, isFullscreen, o
       if (!isFullscreen) return;
       const node = evt.target;
       node.addClass('hovered');
-      
+
       const originalEvent = evt.originalEvent;
       let x = 0;
       let y = 0;
@@ -1431,7 +1965,7 @@ const IncidentGraph: React.FC<IncidentGraphProps> = ({ incident, isFullscreen, o
     const startTime = Date.now();
     const animate = () => {
       const elapsed = Date.now() - startTime;
-      
+
       // 1. Pulse root border
       const pulse = Math.abs(Math.sin(elapsed / 450)) * 3 + 1.5;
       cy.nodes('.root-node').style('border-width', `${pulse}px`);
@@ -1537,11 +2071,11 @@ const IncidentGraph: React.FC<IncidentGraphProps> = ({ incident, isFullscreen, o
   };
 
   return (
-    <div 
+    <div
       onContextMenu={(e) => e.preventDefault()}
       style={{ position: 'relative', width: '100%', height: isFullscreen ? '100%' : '380px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: '#ffffff', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
     >
-      
+
       {/* Controls Header Overlay */}
       <div style={{
         position: 'absolute',
@@ -1593,7 +2127,7 @@ const IncidentGraph: React.FC<IncidentGraphProps> = ({ incident, isFullscreen, o
 
       {/* Fullscreen Toggle Button */}
       {!isFullscreen && (
-        <button 
+        <button
           onClick={onClose}
           style={{
             position: 'absolute',
@@ -1619,16 +2153,16 @@ const IncidentGraph: React.FC<IncidentGraphProps> = ({ incident, isFullscreen, o
       )}
 
       {/* Canvas with Grid */}
-      <div 
-        ref={containerRef} 
-        style={{ 
-          flex: 1, 
-          width: '100%', 
+      <div
+        ref={containerRef}
+        style={{
+          flex: 1,
+          width: '100%',
           height: '100%',
           backgroundColor: '#f8fafc',
           backgroundImage: 'linear-gradient(to right, rgba(148, 163, 184, 0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(148, 163, 184, 0.06) 1px, transparent 1px)',
           backgroundSize: '24px 24px'
-        }} 
+        }}
       />
 
       {/* Hover Information Tooltip next to cursor - Only visible in Fullscreen */}
@@ -1667,7 +2201,7 @@ const IncidentGraph: React.FC<IncidentGraphProps> = ({ incident, isFullscreen, o
 
       {/* Right-click Context Menu */}
       {contextMenu.visible && (
-        <div 
+        <div
           onMouseDown={(e) => e.stopPropagation()}
           onMouseUp={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
@@ -1813,7 +2347,7 @@ const IncidentGraph: React.FC<IncidentGraphProps> = ({ incident, isFullscreen, o
 
 function App() {
   // Navigation: Single word menu names
-  const [currentView, setCurrentView] = useState<'compliance' | 'incidents' | 'events' | 'rca' | 'simulators' | 'channels' | 'policies'>('compliance');
+  const [currentView, setCurrentView] = useState<'compliance' | 'incidents' | 'events' | 'rca' | 'simulators' | 'channels' | 'policies' | 'exchange'>('compliance');
   const [activeDetailTab, setActiveDetailTab] = useState<'summary' | 'graph'>('graph');
   const [isFullscreenGraph, setIsFullscreenGraph] = useState<boolean>(false);
 
@@ -1826,9 +2360,27 @@ function App() {
 
 
 
-  const handleUpdateIncidentStatus = (id: string, status: 'PENDING' | 'ESCALATED' | 'DISMISSED') => {
-    setIncidents(prev => prev.map(inc => inc.id === id ? { ...inc, status } : inc));
-    setSelectedIncident(prev => prev && prev.id === id ? { ...prev, status } : prev);
+  const handleUpdateIncidentStatus = async (id: string, status: 'PENDING' | 'ESCALATED' | 'DISMISSED') => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/v1/detect/incidents/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status })
+      });
+      if (response.ok) {
+        setIncidents(prev => prev.map(inc => inc.id === id ? { ...inc, status } : inc));
+        setSelectedIncident(prev => prev && prev.id === id ? { ...prev, status } : prev);
+        addEventLog(`Incident ${id} status updated to ${status}.`, "SYSTEM");
+      } else {
+        const errData = await response.json();
+        triggerToast(`Failed to update status: ${errData.detail || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error("Error updating incident status:", err);
+      triggerToast("Error connecting to backend to update incident status.");
+    }
   };
 
   // Alert Channels Config States
@@ -2120,13 +2672,19 @@ function App() {
       })
       .then(data => {
         if (Array.isArray(data)) {
-          setIncidents(data);
-          if (data.length > 0) {
+          const mapped = data.map(inc => {
+            const mappedSymbol = DATASETS_MAP[inc.symbol]?.symbol || inc.symbol;
+            return { ...inc, symbol: mappedSymbol };
+          });
+          setIncidents(mapped);
+          if (mapped.length > 0) {
             setSelectedIncident(prev => {
-              if (!prev) return data[0];
-              const found = data.find(i => i.id === prev.id);
-              return found || data[0];
+              if (!prev) return mapped[0];
+              const found = mapped.find(i => i.id === prev.id);
+              return found || mapped[0];
             });
+          } else {
+            setSelectedIncident(null);
           }
         }
       })
@@ -2184,18 +2742,18 @@ function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ policies: validated })
           })
-          .then(res => {
-            if (!res.ok) throw new Error("API error");
-            return res.json();
-          })
-          .then(() => {
-            refreshPoliciesList();
-            triggerToast(`Successfully imported ${validated.length} policy rules.`);
-          })
-          .catch(err => {
-            console.error("Failed to bulk import policies:", err);
-            triggerToast("Failed to import policies into database.");
-          });
+            .then(res => {
+              if (!res.ok) throw new Error("API error");
+              return res.json();
+            })
+            .then(() => {
+              refreshPoliciesList();
+              triggerToast(`Successfully imported ${validated.length} policy rules.`);
+            })
+            .catch(err => {
+              console.error("Failed to bulk import policies:", err);
+              triggerToast("Failed to import policies into database.");
+            });
         } else {
           triggerToast("Invalid format. Imported data must be an array of rules.");
         }
@@ -2225,7 +2783,7 @@ function App() {
       .catch(err => {
         console.warn("Could not fetch trader profiles from backend, using fallbacks:", err);
       });
-    
+
     // Fetch channels configurations
     fetch(`${BACKEND_URL}/api/v1/channels/config`)
       .then(res => {
@@ -2276,6 +2834,7 @@ function App() {
     refreshEventsList();
   }, []);
 
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -2292,9 +2851,9 @@ function App() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  
+
   // App settings
-  const [funds, setFunds] = useState<number>(150000); 
+  const [funds, setFunds] = useState<number>(150000);
   const [showAddFundsModal, setShowAddFundsModal] = useState<boolean>(false);
   const [addFundsAmount, setAddFundsAmount] = useState<string>("50000");
 
@@ -2380,7 +2939,7 @@ function App() {
   // Candlestick aggregator states
   const [candles, setCandles] = useState<CandlestickData[]>([]);
   const [volumes, setVolumes] = useState<HistogramData[]>([]);
-  
+
   // Order Panel Form
   const [orderAction, setOrderAction] = useState<'BUY' | 'SELL'>('BUY');
   const [orderTab, setOrderTab] = useState<'REGULAR' | 'GTT'>('REGULAR');
@@ -2401,29 +2960,24 @@ function App() {
   ]);
 
   // Incidents log
-  const [incidents, setIncidents] = useState<Incident[]>([
-    {
-      id: "INC-2026-9042",
-      symbol: "LT",
-      pattern: "Quote Stuffing",
-      severity: "HIGH",
-      timestamp: "2026-06-06 14:10:05",
-      status: "ESCALATED",
-      confidence: 0.88,
-      evidence: "142 orders placed and cancelled in 240ms. Price pressure was created on Sell book."
-    },
-    {
-      id: "INC-2026-8812",
-      symbol: "TATAELXSI",
-      pattern: "Insider Trading",
-      severity: "CRITICAL",
-      timestamp: "2026-06-06 15:30:12",
-      status: "PENDING",
-      confidence: 0.94,
-      evidence: "Block transaction size +5.40 vs average 30-day baseline before corporate quarterly earnings release."
-    }
-  ]);
-  const [selectedIncident, setSelectedIncident] = useState<Incident | null>(incidents[0]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+
+  // Exchange Server and Scenario States
+  const [activeScenarioName, setActiveScenarioName] = useState<string | null>(null);
+  const [exchangeDepth, setExchangeDepth] = useState<{
+    market_depth: { bids: any[], asks: any[] },
+    our_orders: { bids: any[], asks: any[] }
+  } | null>(null);
+  const [pendingOrders, setPendingOrders] = useState<any[]>([]);
+  const [orderAutoExecute, setOrderAutoExecute] = useState<boolean>(false); // Default false for pending match queue in Exchange Server, user can check for direct auto-execute
+  const [portfolioTab, setPortfolioTab] = useState<'positions' | 'pending'>('positions');
+
+
+  // Incidents search, selection, and delete-modal states
+  const [selectedIncidentIds, setSelectedIncidentIds] = useState<string[]>([]);
+  const [incidentSearchQuery, setIncidentSearchQuery] = useState<string>("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
 
   // Incident Markers & Tooltips
   const [hoveredIncidentId, setHoveredIncidentId] = useState<string | null>(null);
@@ -2437,6 +2991,32 @@ function App() {
     if (!hoveredIncidentId) return null;
     return incidents.find(i => i.id === hoveredIncidentId);
   }, [hoveredIncidentId, incidents]);
+
+  const filteredIncidents = useMemo(() => {
+    const q = incidentSearchQuery.toLowerCase().trim();
+    if (!q) return incidents;
+    return incidents.filter(inc =>
+      inc.id.toLowerCase().includes(q) ||
+      inc.symbol.toLowerCase().includes(q) ||
+      inc.pattern.toLowerCase().includes(q) ||
+      inc.severity.toLowerCase().includes(q) ||
+      inc.status.toLowerCase().includes(q)
+    );
+  }, [incidents, incidentSearchQuery]);
+
+  // Periodic polling for incidents, events and pending orders (fixed 2.5s cadence)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshIncidentsList();
+      refreshEventsList();
+      fetch(`${BACKEND_URL}/api/v1/orders/pending`)
+        .then(res => res.json())
+        .then(data => { if (data.status === 'success') setPendingOrders(data.orders); })
+        .catch(() => {});
+    }, 2500);
+    return () => clearInterval(interval);
+  }, []);
+
 
   // Compliance Surveillance states
   const [surveillanceAlert, setSurveillanceAlert] = useState<ComplianceAlert | null>(null);
@@ -2491,17 +3071,17 @@ function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: formatted })
     })
-    .then(res => {
-      if (!res.ok) throw new Error("API error");
-      return res.json();
-    })
-    .then(() => {
-      refreshEventsList();
-    })
-    .catch(err => {
-      console.warn("Could not save log to backend:", err);
-      setLogs(prev => [...prev, formatted]);
-    });
+      .then(res => {
+        if (!res.ok) throw new Error("API error");
+        return res.json();
+      })
+      .then(() => {
+        refreshEventsList();
+      })
+      .catch(err => {
+        console.warn("Could not save log to backend:", err);
+        setLogs(prev => [...prev, formatted]);
+      });
   };
 
   // Scroll events log console
@@ -2517,7 +3097,7 @@ function App() {
       try {
         const response = await fetch(`${BACKEND_URL}/api/v1/trades/instruments`);
         const result = await response.json();
-        
+
         if (result.status === "success") {
           const apiInstruments = result.instruments.map((inst: any) => {
             const mapped = DATASETS_MAP[inst.instrument_id] || { symbol: inst.instrument_id, name: inst.instrument_id };
@@ -2552,7 +3132,7 @@ function App() {
         setInstruments(fallbackList);
       }
     };
-    
+
     fetchInstruments();
 
     // Query Clearbit Autocomplete suggestions to enrich domains and favicons (ensure www. prefix)
@@ -2564,7 +3144,7 @@ function App() {
           if (res.ok) {
             const data = await res.json();
             if (data && data.length > 0) {
-              const suggestion = data[0]; 
+              const suggestion = data[0];
               const domain = suggestion.domain || `${sym.toLowerCase()}.com`;
               const cleanDomain = domain.startsWith('www.') ? domain : `www.${domain}`;
               setCompanyDetails(prev => ({
@@ -2589,13 +3169,13 @@ function App() {
   // 2. Load historical trade data for the selected instrument, convert to candles
   useEffect(() => {
     if (!activeInstrumentId) return;
-    if (activeInstrumentId.startsWith("UPLOADED|")) return; 
+    if (activeInstrumentId.startsWith("UPLOADED|")) return;
 
     const loadHistory = async () => {
       try {
         const response = await fetch(`${BACKEND_URL}/api/v1/trades/${activeInstrumentId}?limit=800`);
         const result = await response.json();
-        
+
         if (result.status === "success" && result.trades && result.trades.length > 0) {
           const sorted = [...result.trades].sort((a: any, b: any) => {
             const tA = new Date(a.timestamp.includes('Z') ? a.timestamp : a.timestamp.replace(' ', 'T') + 'Z').getTime();
@@ -2605,10 +3185,10 @@ function App() {
 
           const aggCandles: CandlestickData[] = [];
           const aggVolumes: HistogramData[] = [];
-          
+
           let currentWindowKey: number | null = null;
           let windowTicks: any[] = [];
-          
+
           const firstTick = sorted[0];
           const initialClose = firstTick.cp || firstTick.ltp;
           setLastLtp(firstTick.ltp);
@@ -2632,7 +3212,7 @@ function App() {
               const closePrice = prices[prices.length - 1];
               const highPrice = Math.max(...prices);
               const lowPrice = Math.min(...prices);
-              
+
               const lastTickInWindow = windowTicks[windowTicks.length - 1];
               const volDiff = previousTotalVol > 0 ? Math.max(0, lastTickInWindow.volume - previousTotalVol) : lastTickInWindow.volume;
               previousTotalVol = lastTickInWindow.volume;
@@ -2663,7 +3243,7 @@ function App() {
             const closePrice = prices[prices.length - 1];
             const highPrice = Math.max(...prices);
             const lowPrice = Math.min(...prices);
-            
+
             const lastTickInWindow = windowTicks[windowTicks.length - 1];
             const volDiff = previousTotalVol > 0 ? Math.max(0, lastTickInWindow.volume - previousTotalVol) : lastTickInWindow.volume;
 
@@ -2687,7 +3267,7 @@ function App() {
           }
           setCandles(aggCandles);
           setVolumes(aggVolumes);
-          
+
           if (sorted.length > 0) {
             const startStr = sorted[0].timestamp;
             const endStr = sorted[sorted.length - 1].timestamp;
@@ -2709,15 +3289,25 @@ function App() {
           const currentChange = lastTrade.ltp - basePrice;
           const currentPct = (currentChange / basePrice) * 100;
           setPriceChange({ change: currentChange, pct: currentPct });
-          
+
           addEventLog(`Loaded ${aggCandles.length} historical candles for ${activeInstrument.symbol}.`, "HISTORY");
         }
       } catch (err) {
         console.error("Failed to load historical trades:", err);
       }
     };
-    
+
     loadHistory();
+
+    // Fetch initial market depth and pending orders immediately on instrument switch
+    fetch(`${BACKEND_URL}/api/v1/orders/depth?instrument_id=${activeInstrumentId}`)
+      .then(res => res.json())
+      .then(data => { if (data.status === 'success') setExchangeDepth(data.data); })
+      .catch(() => {});
+    fetch(`${BACKEND_URL}/api/v1/orders/pending`)
+      .then(res => res.json())
+      .then(data => { if (data.status === 'success') setPendingOrders(data.orders); })
+      .catch(() => {});
   }, [activeInstrumentId]);
 
   // Synchronize ref values
@@ -2746,7 +3336,7 @@ function App() {
   const handleJumpToTime = (targetTimeStr?: string) => {
     const timeToJump = targetTimeStr || jumpDateTime;
     if (!timeToJump) return;
-    
+
     let isoString = "";
     try {
       const parsed = new Date(timeToJump);
@@ -2754,15 +3344,15 @@ function App() {
     } catch (e) {
       isoString = timeToJump;
     }
-    
+
     setCandles([]);
     setVolumes([]);
     lastStreamedTimestampRef.current = isoString;
     setCurrentPlaybackTime(isoString);
-    
+
     addEventLog(`Jumping replay timeline to: ${isoString}`, "REPLAY");
     triggerToast(`Jumping timeline to ${isoString}`);
-    
+
     if (websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
       setIsReplaying(true);
       websocketRef.current.send(JSON.stringify({
@@ -2777,7 +3367,7 @@ function App() {
   const handleTogglePlayPause = () => {
     const nextState = !isReplaying;
     setIsReplaying(nextState);
-    
+
     if (websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
       if (nextState) {
         addEventLog(`Resuming replay stream for ${activeInstrument.symbol} at ${replaySpeed}x.`, "WS");
@@ -2802,7 +3392,7 @@ function App() {
   // 3. Setup WebSocket connection for streaming ticks
   useEffect(() => {
     if (!activeInstrumentId) return;
-    if (activeInstrumentId.startsWith("UPLOADED|")) return; 
+    if (activeInstrumentId.startsWith("UPLOADED|")) return;
 
     // Create or retrieve WebSocket connection
     let ws = websocketRef.current;
@@ -2852,6 +3442,10 @@ function App() {
         setLastLtp(tickData.ltp);
         lastStreamedTimestampRef.current = tickData.timestamp;
         setCurrentPlaybackTime(tickData.timestamp);
+        
+        if (msg.depth) {
+          setExchangeDepth(msg.depth);
+        }
 
         if (orderPriceType === 'MARKET') {
           setOrderPrice(tickData.ltp.toFixed(2));
@@ -2862,7 +3456,7 @@ function App() {
         const pct = (change / prevClose) * 100;
         setPriceChange({ change, pct });
 
-        setInstruments(prev => 
+        setInstruments(prev =>
           prev.map(inst => {
             if (inst.instrument_id === activeInstrumentIdRef.current) {
               return {
@@ -2880,7 +3474,7 @@ function App() {
         const cleanTs = tickData.timestamp.includes('Z') ? tickData.timestamp : tickData.timestamp.replace(' ', 'T') + 'Z';
         const timeSec = Math.floor(new Date(cleanTs).getTime() / 1000);
         const candleKey = Math.floor(timeSec / 10) * 10;
-        
+
         setCandles(prev => {
           const list = [...prev];
           if (list.length === 0) {
@@ -2893,7 +3487,7 @@ function App() {
               close: tickData.ltp
             }];
           }
-          
+
           const lastCandle = list[list.length - 1];
           if (lastCandle.time === candleKey) {
             if (currentCandleOpenRef.current === null) {
@@ -2960,8 +3554,8 @@ function App() {
 
     const bgColor = chartTheme === 'dark' ? '#131722' : '#ffffff';
     const textColor = chartTheme === 'dark' ? '#d1d4dc' : '#1e293b';
-    const gridColor = chartTheme === 'dark' 
-      ? (showGridLines ? 'rgba(42, 46, 57, 0.15)' : 'rgba(0, 0, 0, 0)') 
+    const gridColor = chartTheme === 'dark'
+      ? (showGridLines ? 'rgba(42, 46, 57, 0.15)' : 'rgba(0, 0, 0, 0)')
       : (showGridLines ? 'rgba(0, 0, 0, 0.05)' : 'rgba(0, 0, 0, 0)');
     const borderColor = chartTheme === 'dark' ? '#2b2e39' : '#e2e8f0';
 
@@ -3041,7 +3635,7 @@ function App() {
 
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({ 
+        chartRef.current.applyOptions({
           width: chartContainerRef.current.clientWidth,
           height: Math.max(400, chartContainerRef.current.clientHeight)
         });
@@ -3062,7 +3656,7 @@ function App() {
   // Dynamically resize chart when side panels are resized
   useEffect(() => {
     if (chartRef.current && chartContainerRef.current) {
-      chartRef.current.applyOptions({ 
+      chartRef.current.applyOptions({
         width: chartContainerRef.current.clientWidth,
         height: Math.max(400, chartContainerRef.current.clientHeight)
       });
@@ -3074,8 +3668,8 @@ function App() {
     if (chartRef.current && candlestickSeriesRef.current) {
       const bgColor = chartTheme === 'dark' ? '#131722' : '#ffffff';
       const textColor = chartTheme === 'dark' ? '#d1d4dc' : '#1e293b';
-      const gridColor = chartTheme === 'dark' 
-        ? (showGridLines ? 'rgba(42, 46, 57, 0.15)' : 'rgba(0, 0, 0, 0)') 
+      const gridColor = chartTheme === 'dark'
+        ? (showGridLines ? 'rgba(42, 46, 57, 0.15)' : 'rgba(0, 0, 0, 0)')
         : (showGridLines ? 'rgba(0, 0, 0, 0.05)' : 'rgba(0, 0, 0, 0)');
       const borderColor = chartTheme === 'dark' ? '#2b2e39' : '#e2e8f0';
 
@@ -3128,7 +3722,7 @@ function App() {
         activeIncidents.forEach(inc => {
           const cleanTs = inc.timestamp.includes('Z') ? inc.timestamp : inc.timestamp.replace(' ', 'T') + 'Z';
           const timeSec = Math.floor(new Date(cleanTs).getTime() / 1000);
-          
+
           const windowKey = Math.floor(timeSec / 10) * 10;
           const hasExactCandle = candles.some(c => (c.time as any) === windowKey);
 
@@ -3138,7 +3732,7 @@ function App() {
           } else {
             let closestCandle = candles[0];
             let minDiff = Math.abs((closestCandle.time as number) - timeSec);
-            
+
             candles.forEach(c => {
               const diff = Math.abs((c.time as number) - timeSec);
               if (diff < minDiff) {
@@ -3147,18 +3741,8 @@ function App() {
               }
             });
 
-            if (minDiff < 3600) {
-              markerTime = closestCandle.time as number;
-            } else {
-              // Force match for initial mock incidents so they show up on default view
-              if (inc.id === "INC-2026-9042" && currentSymbol === "LT") {
-                const targetIndex = Math.min(25, candles.length - 1);
-                markerTime = candles[targetIndex]?.time as number;
-              } else if (inc.id === "INC-2026-8812" && currentSymbol === "TATAELXSI") {
-                const targetIndex = Math.min(35, candles.length - 1);
-                markerTime = candles[targetIndex]?.time as number;
-              }
-            }
+            // Always pin on the closest candle regardless of time distance
+            markerTime = closestCandle.time as number;
           }
 
           if (markerTime !== null) {
@@ -3205,12 +3789,12 @@ function App() {
   // 5. Update positions live when tick price changes
   useEffect(() => {
     if (positions.length === 0 || !currentTick) return;
-    
-    setPositions(prev => 
+
+    setPositions(prev =>
       prev.map(pos => {
         if (pos.instrumentId === activeInstrumentId) {
           const currentPrice = currentTick.ltp;
-          const pnl = pos.type === 'BUY' 
+          const pnl = pos.type === 'BUY'
             ? (currentPrice - pos.avgPrice) * pos.qty
             : (pos.avgPrice - currentPrice) * pos.qty;
           return {
@@ -3320,7 +3904,29 @@ function App() {
     };
   };
 
-  const depthData = getLiveDepth();
+  const getMergedDepth = () => {
+    const defaultDepth = getLiveDepth();
+    if (!exchangeDepth) return defaultDepth;
+
+    const extBids = (exchangeDepth.market_depth?.bids || []).map(b => ({ ...b, isOurOrder: false }));
+    const ourBids = (exchangeDepth.our_orders?.bids || []).map(b => ({ ...b, isOurOrder: true }));
+    const mergedBids = [...ourBids, ...extBids]
+      .sort((a, b) => b.price - a.price)
+      .slice(0, 5);
+
+    const extAsks = (exchangeDepth.market_depth?.asks || []).map(a => ({ ...a, isOurOrder: false }));
+    const ourAsks = (exchangeDepth.our_orders?.asks || []).map(a => ({ ...a, isOurOrder: true }));
+    const mergedAsks = [...ourAsks, ...extAsks]
+      .sort((a, b) => a.price - b.price)
+      .slice(0, 5);
+
+    return {
+      bids: mergedBids.length > 0 ? mergedBids : defaultDepth.bids,
+      asks: mergedAsks.length > 0 ? mergedAsks : defaultDepth.asks
+    };
+  };
+
+  const depthData = getMergedDepth();
   const maxBidQty = Math.max(...depthData.bids.map(b => b.qty));
   const maxAskQty = Math.max(...depthData.asks.map(a => a.qty));
 
@@ -3336,47 +3942,98 @@ function App() {
   const requiredFunds = rawRequiredFunds;
   const hasSufficientFunds = funds >= requiredFunds;
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = (sideOverride?: 'BUY' | 'SELL') => {
+    const finalSide = sideOverride || orderAction;
+
     if (!hasSufficientFunds) {
       triggerToast("Insufficient funds to place this order!");
       return;
     }
 
-    setFunds(prev => prev - requiredFunds);
-
-    const newPos: Position = {
+    const payload = {
+      instrument: activeInstrumentId,
       symbol: activeInstrument.symbol,
-      instrumentId: activeInstrumentId,
-      type: orderAction,
-      qty: orderQty,
-      avgPrice: numericPrice,
-      currentPrice: lastLtp,
-      pnl: 0
+      side: finalSide,
+      order_type: orderPriceType,
+      quantity: orderQty,
+      price: numericPrice,
+      trader_id: actorAccountId, // Compliance officer or selected rogue participant
+      trader_name: tradersList.find(t => t.trader_id === actorAccountId)?.name || "Compliance Officer",
+      note: "Manual Placement",
+      auto_execute: orderAutoExecute
     };
 
-    setPositions(prev => {
-      const existingIdx = prev.findIndex(p => p.instrumentId === activeInstrumentId && p.type === orderAction);
-      if (existingIdx > -1) {
-        const list = [...prev];
-        const old = list[existingIdx];
-        const combinedQty = old.qty + orderQty;
-        const averagePrice = ((old.avgPrice * old.qty) + (numericPrice * orderQty)) / combinedQty;
-        list[existingIdx] = {
-          ...old,
-          qty: combinedQty,
-          avgPrice: averagePrice,
-          currentPrice: lastLtp,
-          pnl: orderAction === 'BUY' 
-            ? (lastLtp - averagePrice) * combinedQty
-            : (averagePrice - lastLtp) * combinedQty
-        };
-        return list;
-      }
-      return [...prev, newPos];
-    });
-
-    addEventLog(`Order executed: ${orderAction} ${orderQty} shares of ${activeInstrument.symbol} at ${numericPrice.toFixed(2)}`, "TRADE");
-    triggerToast(`Order placed: ${orderAction} ${orderQty} shares of ${activeInstrument.symbol}`);
+    fetch(`${BACKEND_URL}/api/v1/orders/place`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "success") {
+          if (orderAutoExecute) {
+            setFunds(prev => prev - requiredFunds);
+            const newPos: Position = {
+              symbol: activeInstrument.symbol,
+              instrumentId: activeInstrumentId,
+              type: finalSide,
+              qty: orderQty,
+              avgPrice: numericPrice,
+              currentPrice: lastLtp,
+              pnl: 0
+            };
+            setPositions(prev => {
+              const existingIdx = prev.findIndex(p => p.instrumentId === activeInstrumentId && p.type === finalSide);
+              if (existingIdx > -1) {
+                const list = [...prev];
+                const old = list[existingIdx];
+                const combinedQty = old.qty + orderQty;
+                const averagePrice = ((old.avgPrice * old.qty) + (numericPrice * orderQty)) / combinedQty;
+                list[existingIdx] = {
+                  ...old,
+                  qty: combinedQty,
+                  avgPrice: averagePrice,
+                  currentPrice: lastLtp,
+                  pnl: finalSide === 'BUY'
+                    ? (lastLtp - averagePrice) * combinedQty
+                    : (averagePrice - lastLtp) * combinedQty
+                };
+                return list;
+              }
+              return [...prev, newPos];
+            });
+            triggerToast(`Order executed & filled: ${finalSide} ${orderQty} shares`);
+          } else {
+            triggerToast(`Order placed as PENDING. Open the Exchange Server tab to view or execute.`);
+            // Proactively update pending orders
+            fetch(`${BACKEND_URL}/api/v1/orders/pending`)
+              .then(res => res.json())
+              .then(d => {
+                if (d.status === 'success') {
+                  setPendingOrders(d.orders);
+                }
+              })
+              .catch(err => console.warn("Error fetching pending orders:", err));
+            
+            // Proactively update exchange depth
+            fetch(`${BACKEND_URL}/api/v1/orders/depth?instrument_id=${activeInstrumentId}`)
+              .then(res => res.json())
+              .then(d => {
+                if (d.status === 'success') {
+                  setExchangeDepth(d.data);
+                }
+              })
+              .catch(err => console.warn("Error fetching exchange depth:", err));
+          }
+          refreshEventsList();
+        } else {
+          triggerToast(`Order placement failed: ${data.detail || "Unknown error"}`);
+        }
+      })
+      .catch(err => {
+        console.error("Order placement API call failed:", err);
+        triggerToast("Order placement API call failed.");
+      });
   };
 
   const handleClosePosition = (index: number) => {
@@ -3384,7 +4041,7 @@ function App() {
     const exitValue = pos.qty * lastLtp;
     const initialValue = pos.qty * pos.avgPrice;
     const posPnl = pos.type === 'BUY' ? exitValue - initialValue : initialValue - exitValue;
-    
+
     const marginReturn = initialValue;
     setFunds(prev => prev + marginReturn + posPnl);
 
@@ -3405,97 +4062,143 @@ function App() {
 
   // Rogue Threat Actor Scenario Injection Action
   const handleInjectCustomAnomaly = () => {
-    const incidentId = "INC-2026-" + Math.floor(1000 + Math.random() * 9000);
-    const timeStr = currentTick 
-      ? currentTick.timestamp.substring(0, 19) 
-      : new Date().toISOString().replace('T', ' ').substring(0, 19);
-    
-    // Get trader profile name
     const selectedTraderObj = tradersList.find(t => t.trader_id === actorAccountId) || { name: "Rogue Participant", trader_id: actorAccountId };
     const traderName = selectedTraderObj.name;
 
-    const desc = `Rogue Threat Actor account ${actorAccountId} (${traderName}) executed a ${customPattern.toUpperCase()} scenario on instrument ${activeInstrument.symbol} with Order Cancellation Force of ${customCancelRatio}%, Target Price Shift of ${customPriceImpact}%, and Cancel median speed of ${customCancelMedian}ms.`;
-    
-    // Automated scanner dynamically determines detection confidence:
-    let calculatedConfidence = 0.65;
-    if (customCancelRatio > 80 && customOrderCount > 10) {
-      calculatedConfidence = 0.94;
-    } else if (customCancelRatio > 50 || customOrderCount > 5) {
-      calculatedConfidence = 0.82;
-    }
-
-    // Call backend to log this injection in SQLite db for audit accountability
-    fetch(`${BACKEND_URL}/api/v1/detect/inject`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const payload = {
+      pattern_type: customPattern,
+      parameters: {
         trader_id: actorAccountId,
         trader_name: traderName,
         instrument: activeInstrument.symbol,
-        pattern_type: customPattern,
         severity: customSeverity,
-        confidence: calculatedConfidence,
         cancel_ratio: customCancelRatio / 100,
         cancel_time_median: customCancelMedian,
         order_count: customOrderCount,
-        price_impact: customPriceImpact / 100,
-        description: desc,
-        timestamp: timeStr
+        price_shift: customPriceImpact / 100
+      }
+    };
+
+    fetch(`${BACKEND_URL}/api/v1/orders/trigger-scenario`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "success") {
+          setActiveScenarioName(customPattern.toUpperCase().replace('_', ' '));
+          addEventLog(`Rogue actor active scenario: [${customPattern.toUpperCase()}] started on ${activeInstrument.symbol}`, "THREAT");
+          triggerToast(`Threat stream mutation [${customPattern.toUpperCase()}] is now ACTIVE!`);
+        } else {
+          triggerToast(`Failed to trigger scenario: ${data.detail || "error"}`);
+        }
       })
+      .catch(err => {
+        console.error("Failed to trigger scenario:", err);
+        triggerToast("Scenario API call failed.");
+      });
+  };
+
+  const handleClearScenario = () => {
+    fetch(`${BACKEND_URL}/api/v1/orders/clear-scenario`, {
+      method: "POST"
     })
-    .then(res => res.json())
-    .then(data => {
-      console.log("Anomaly logged for audit accountability:", data);
-      triggerToast(`Audit DB Registered: ACTOR_INJECT_${data.injection_id || "OK"}`);
-      refreshIncidentsList();
-      refreshEventsList();
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "success") {
+          setActiveScenarioName(null);
+          addEventLog("Active threat stream scenario cleared.", "INFO");
+          triggerToast("Active scenario cleared.");
+        }
+      })
+      .catch(err => {
+        console.error("Failed to clear scenario:", err);
+      });
+  };
+
+  const handleFulfillOrder = (order: any) => {
+    fetch(`${BACKEND_URL}/api/v1/orders/execute/${order.id}`, {
+      method: "POST"
     })
-    .catch(err => {
-      console.error("Failed to log anomaly accountability on backend:", err);
-    });
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "success") {
+          triggerToast(`Order #${order.id} executed successfully!`);
+          
+          const cost = order.quantity * order.price;
+          setFunds(prev => prev - cost);
+          const newPos: Position = {
+            symbol: order.symbol,
+            instrumentId: order.instrument,
+            type: order.side,
+            qty: order.quantity,
+            avgPrice: order.price,
+            currentPrice: order.price,
+            pnl: 0
+          };
+          setPositions(prev => {
+            const existingIdx = prev.findIndex(p => p.instrumentId === order.instrument && p.type === order.side);
+            if (existingIdx > -1) {
+              const list = [...prev];
+              const old = list[existingIdx];
+              const combinedQty = old.qty + order.quantity;
+              const averagePrice = ((old.avgPrice * old.qty) + (order.price * order.quantity)) / combinedQty;
+              list[existingIdx] = {
+                ...old,
+                qty: combinedQty,
+                avgPrice: averagePrice,
+                currentPrice: order.price,
+                pnl: order.side === 'BUY'
+                  ? (order.price - averagePrice) * combinedQty
+                  : (averagePrice - order.price) * combinedQty
+              };
+              return list;
+            }
+            return [...prev, newPos];
+          });
 
-    const newAlert: ComplianceAlert = {
-      alert_id: incidentId,
-      pattern_type: customPattern,
-      severity: customSeverity,
-      confidence: calculatedConfidence,
-      instrument: activeInstrumentId,
-      timestamp: timeStr,
-      evidence: {
-        cancel_ratio: customCancelRatio / 100,
-        cancel_time_median: customCancelMedian,
-        order_count: customOrderCount,
-        price_impact: customPriceImpact / 100
-      },
-      description: desc
-    };
+          fetch(`${BACKEND_URL}/api/v1/orders/pending`)
+            .then(res => res.json())
+            .then(d => {
+              if (d.status === 'success') {
+                setPendingOrders(d.orders);
+              }
+            });
+          refreshEventsList();
+          refreshIncidentsList();
+        } else {
+          triggerToast("Execution failed.");
+        }
+      });
+  };
 
-    const newIncident: Incident = {
-      id: incidentId,
-      symbol: activeInstrument.symbol,
-      pattern: customPattern.toUpperCase().replace('_', ' '),
-      severity: customSeverity,
-      timestamp: timeStr,
-      status: 'PENDING',
-      confidence: calculatedConfidence,
-      evidence: desc
-    };
-
-    setSurveillanceAlert(newAlert);
-    setTriageReport(null);
-    setIncidents(prev => [newIncident, ...prev]);
-    setSelectedIncident(newIncident);
-    setShowCompliancePanel(true);
-
-    addEventLog(`Rogue actor injected threat activity: [${customPattern.toUpperCase()}] on instrument ${activeInstrument.symbol}`, "THREAT");
-    triggerToast(`Threat activity executed by actor ${actorAccountId}!`);
+  const handleCancelOrder = (orderId: number) => {
+    fetch(`${BACKEND_URL}/api/v1/orders/cancel/${orderId}`, {
+      method: "POST"
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "success") {
+          triggerToast(`Order #${orderId} canceled.`);
+          fetch(`${BACKEND_URL}/api/v1/orders/pending`)
+            .then(res => res.json())
+            .then(d => {
+              if (d.status === 'success') {
+                setPendingOrders(d.orders);
+              }
+            });
+          refreshEventsList();
+          refreshIncidentsList();
+        }
+      });
   };
 
   // AI Triage calls
   const handleRunTriage = async () => {
     if (!surveillanceAlert) return;
     setTriageLoading(true);
-    
+
     try {
       const response = await fetch(`${BACKEND_URL}/api/v1/triage/analyze`, {
         method: "POST",
@@ -3551,7 +4254,7 @@ function App() {
         const text = event.target?.result as string;
         const lines = text.split('\n');
         const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        
+
         const timestampIdx = headers.findIndex(h => h.includes('time') || h.includes('date'));
         const ltpIdx = headers.findIndex(h => h.includes('price') || h.includes('ltp') || h.includes('close'));
         const volIdx = headers.findIndex(h => h.includes('vol') || h.includes('qty'));
@@ -3565,7 +4268,7 @@ function App() {
         for (let i = 1; i < lines.length; i++) {
           const row = lines[i].split(',').map(v => v.trim());
           if (row.length < headers.length) continue;
-          
+
           parsedTrades.push({
             timestamp: row[timestampIdx],
             ltp: parseFloat(row[ltpIdx]),
@@ -3582,7 +4285,7 @@ function App() {
 
         triggerToast(`Uploaded ${file.name}. Initialized replayer with ${parsedTrades.length} rows.`);
         addEventLog(`Client uploaded custom dataset: ${file.name} (${parsedTrades.length} ticks)`, "SYSTEM");
-        
+
         const mockUploadedInstrumentId = `UPLOADED|${file.name}`;
         const newInst: Instrument = {
           instrument_id: mockUploadedInstrumentId,
@@ -3598,7 +4301,7 @@ function App() {
 
         setInstruments(prev => [newInst, ...prev]);
         setActiveInstrumentId(mockUploadedInstrumentId);
-        
+
         // Convert parsed records to candlesticks/volumes
         const aggCandles: CandlestickData[] = [];
         const aggVolumes: HistogramData[] = [];
@@ -3648,7 +4351,7 @@ function App() {
   };
 
   // Filtered lists
-  const filteredInstruments = instruments.filter(inst => 
+  const filteredInstruments = instruments.filter(inst =>
     inst.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
     inst.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -3660,22 +4363,22 @@ function App() {
 
   // ── Event Log helpers (computed before return to avoid IIFE in JSX) ──
   const EVENT_TAG_META: Record<string, { color: string; bg: string; border: string; rowBg: string }> = {
-    THREAT:  { color: '#b91c1c', bg: '#fee2e2', border: '#ef4444', rowBg: '#fff8f8' },
-    TRADE:   { color: '#15803d', bg: '#dcfce7', border: '#22c55e', rowBg: '#f0fdf4' },
-    SYSTEM:  { color: '#1d4ed8', bg: '#dbeafe', border: '#3b82f6', rowBg: '#eff6ff' },
-    WS:      { color: '#7c3aed', bg: '#ede9fe', border: '#8b5cf6', rowBg: '#faf5ff' },
+    THREAT: { color: '#b91c1c', bg: '#fee2e2', border: '#ef4444', rowBg: '#fff8f8' },
+    TRADE: { color: '#15803d', bg: '#dcfce7', border: '#22c55e', rowBg: '#f0fdf4' },
+    SYSTEM: { color: '#1d4ed8', bg: '#dbeafe', border: '#3b82f6', rowBg: '#eff6ff' },
+    WS: { color: '#7c3aed', bg: '#ede9fe', border: '#8b5cf6', rowBg: '#faf5ff' },
     HISTORY: { color: '#c2410c', bg: '#ffedd5', border: '#f97316', rowBg: '#fff7ed' },
-    WALLET:  { color: '#a16207', bg: '#fef9c3', border: '#eab308', rowBg: '#fefce8' },
-    INFO:    { color: '#475569', bg: '#f1f5f9', border: '#94a3b8', rowBg: '#ffffff' },
+    WALLET: { color: '#a16207', bg: '#fef9c3', border: '#eab308', rowBg: '#fefce8' },
+    INFO: { color: '#475569', bg: '#f1f5f9', border: '#94a3b8', rowBg: '#ffffff' },
   };
   const parseEventLog = (log: string) => {
     let tag = 'INFO';
-    if (log.includes('[THREAT]'))       tag = 'THREAT';
-    else if (log.includes('[TRADE]'))   tag = 'TRADE';
-    else if (log.includes('[SYSTEM]'))  tag = 'SYSTEM';
-    else if (log.includes('[WS]'))      tag = 'WS';
+    if (log.includes('[THREAT]')) tag = 'THREAT';
+    else if (log.includes('[TRADE]')) tag = 'TRADE';
+    else if (log.includes('[SYSTEM]')) tag = 'SYSTEM';
+    else if (log.includes('[WS]')) tag = 'WS';
     else if (log.includes('[HISTORY]')) tag = 'HISTORY';
-    else if (log.includes('[WALLET]'))  tag = 'WALLET';
+    else if (log.includes('[WALLET]')) tag = 'WALLET';
     const timeMatch = log.match(/\[(\d{1,2}:\d{2}:\d{2}(?:\s?[AP]M)?)\]/);
     const time = timeMatch ? timeMatch[1] : '';
     const message = log
@@ -3691,7 +4394,7 @@ function App() {
       tag.toLowerCase().includes(eventSearchQuery.toLowerCase());
     return tagMatch && searchMatch;
   });
-  const eventTagCounts = ['THREAT','TRADE','SYSTEM','WS','HISTORY','WALLET','INFO'].reduce((acc, t) => {
+  const eventTagCounts = ['THREAT', 'TRADE', 'SYSTEM', 'WS', 'HISTORY', 'WALLET', 'INFO'].reduce((acc, t) => {
     acc[t] = logs.filter(l => parseEventLog(l).tag === t).length;
     return acc;
   }, {} as Record<string, number>);
@@ -3720,7 +4423,7 @@ function App() {
           <div className="logo-container" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <img src="/brandlogo.png" alt="TradeShield Logo" style={{ height: '30px', width: 'auto', objectFit: 'contain' }} />
           </div>
-          
+
           <div className="indices-ticker">
             <div className="index-item">
               <span className="index-name">NIFTY 50 <span className="nse-badge">NSE</span></span>
@@ -3743,13 +4446,14 @@ function App() {
         <div className="header-nav">
           <div className={`nav-item ${currentView === 'compliance' ? 'active' : ''}`} onClick={() => setCurrentView('compliance')}>Compliance</div>
           <div className={`nav-item ${currentView === 'incidents' ? 'active' : ''}`} onClick={() => setCurrentView('incidents')}>
-            Incidents <span className="watchlist-count-badge" style={{ backgroundColor: '#e53935', color: 'white' }}>{incidents.filter(i=>i.status==='PENDING').length}</span>
+            Incidents <span className="watchlist-count-badge" style={{ backgroundColor: '#e53935', color: 'white' }}>{incidents.filter(i => i.status === 'PENDING').length}</span>
           </div>
           <div className={`nav-item ${currentView === 'events' ? 'active' : ''}`} onClick={() => setCurrentView('events')}>Events</div>
           <div className={`nav-item ${currentView === 'rca' ? 'active' : ''}`} onClick={() => setCurrentView('rca')}>Analysis</div>
           <div className={`nav-item ${currentView === 'channels' ? 'active' : ''}`} onClick={() => setCurrentView('channels')}>Channels</div>
           <div className={`nav-item ${currentView === 'policies' ? 'active' : ''}`} onClick={() => setCurrentView('policies')}>Policy</div>
           <div className={`nav-item ${currentView === 'simulators' ? 'active' : ''}`} onClick={() => setCurrentView('simulators')}>Simulators</div>
+          <div className={`nav-item ${currentView === 'exchange' ? 'active' : ''}`} onClick={() => setCurrentView('exchange')}>Exchange Server</div>
           <div className="nav-item header-anomaly-btn" style={{ color: '#3182ce', fontWeight: 'bold' }} onClick={() => setShowAnomalyPanel(prev => !prev)}>
             Injector
           </div>
@@ -3758,7 +4462,7 @@ function App() {
         {/* Right header buttons */}
         <div className="header-right">
           {surveillanceAlert && (
-            <div 
+            <div
               className={`compliance-badge alert-pulse`}
               onClick={() => {
                 setCurrentView('compliance');
@@ -3769,16 +4473,16 @@ function App() {
               Compliance Alert
             </div>
           )}
-          
+
           <div className="wallet-badge">
             <User size={12} style={{ marginRight: '4px' }} />
             Margin: <span>₹{funds.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
-          
+
           <button className="add-funds-btn" onClick={() => setShowAddFundsModal(true)}>
             <Plus size={11} style={{ marginRight: '2px', display: 'inline' }} /> Add Funds
           </button>
-          
+
           <div className="user-profile-group" style={{ position: 'relative' }}>
             <div className="user-profile" onClick={() => setShowUserProfileDropdown(prev => !prev)} style={{ cursor: 'pointer' }}>
               <User size={16} />
@@ -3890,23 +4594,23 @@ function App() {
 
       {/* Draggable/Collapsible Rogue Threat Injector Panel - Light Theme, Professional, Bigger & Compact */}
       {showAnomalyPanel && (
-        <div 
+        <div
           className="anomaly-injector-panel"
-          style={{ 
-            left: `${anomalyPanelPos.x}px`, 
-            top: `${anomalyPanelPos.y}px` 
+          style={{
+            left: `${anomalyPanelPos.x}px`,
+            top: `${anomalyPanelPos.y}px`
           }}
         >
           <div className="anomaly-panel-header" onMouseDown={handleMouseDown}>
             <span>ROGUE THREAT INJECTOR SIMULATOR</span>
             <div style={{ display: 'flex', gap: '6px' }}>
-              <button 
+              <button
                 onClick={() => setIsAnomalyCollapsed(!isAnomalyCollapsed)}
                 style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', fontWeight: 'bold' }}
               >
                 {isAnomalyCollapsed ? '+' : '-'}
               </button>
-              <button 
+              <button
                 onClick={() => setShowAnomalyPanel(false)}
                 style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', fontWeight: 'bold' }}
               >
@@ -3914,7 +4618,7 @@ function App() {
               </button>
             </div>
           </div>
-          
+
           {!isAnomalyCollapsed && (
             <div className="anomaly-panel-body">
               <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontStyle: 'italic', borderBottom: '1px solid var(--border)', paddingBottom: '8px', marginBottom: '4px' }}>
@@ -3926,7 +4630,7 @@ function App() {
                 <span className="anomaly-control-label" title="The trade manipulation scenario to be executed by the rogue actor.">
                   Malicious Pattern
                 </span>
-                <select 
+                <select
                   className="anomaly-control-input"
                   value={customPattern}
                   onChange={e => setCustomPattern(e.target.value)}
@@ -3950,8 +4654,8 @@ function App() {
                 </span>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       className="anomaly-control-input"
                       style={{ paddingRight: '24px' }}
                       value={traderSearchQuery}
@@ -3962,24 +4666,24 @@ function App() {
                       onFocus={() => setShowTraderDropdown(true)}
                       placeholder="Search name or ID..."
                     />
-                    <ChevronDown 
-                      size={14} 
-                      style={{ position: 'absolute', right: '8px', pointerEvents: 'none', color: '#718096' }} 
+                    <ChevronDown
+                      size={14}
+                      style={{ position: 'absolute', right: '8px', pointerEvents: 'none', color: '#718096' }}
                     />
                   </div>
 
                   {showTraderDropdown && (
-                    <div style={{ 
-                      position: 'absolute', 
-                      top: '100%', 
-                      left: 0, 
-                      right: 0, 
-                      backgroundColor: 'white', 
-                      border: '1px solid #cbd5e0', 
-                      borderRadius: '4px', 
-                      boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', 
-                      maxHeight: '160px', 
-                      overflowY: 'auto', 
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'white',
+                      border: '1px solid #cbd5e0',
+                      borderRadius: '4px',
+                      boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                      maxHeight: '160px',
+                      overflowY: 'auto',
                       zIndex: 1000,
                       marginTop: '2px'
                     }}>
@@ -3988,20 +4692,20 @@ function App() {
                           const selectedTrader = tradersList.find(x => x.trader_id === actorAccountId);
                           const isExactMatch = selectedTrader && traderSearchQuery === `${selectedTrader.name} (${selectedTrader.trader_id})`;
                           if (isExactMatch || !traderSearchQuery.trim()) return true;
-                          
+
                           const q = traderSearchQuery.toLowerCase();
-                          return t.name.toLowerCase().includes(q) || 
-                                 t.trader_id.toLowerCase().includes(q) ||
-                                 t.role.toLowerCase().includes(q);
+                          return t.name.toLowerCase().includes(q) ||
+                            t.trader_id.toLowerCase().includes(q) ||
+                            t.role.toLowerCase().includes(q);
                         });
                         return (
                           <>
                             {filtered.map(t => (
-                              <div 
+                              <div
                                 key={t.trader_id}
-                                style={{ 
-                                  padding: '6px 10px', 
-                                  cursor: 'pointer', 
+                                style={{
+                                  padding: '6px 10px',
+                                  cursor: 'pointer',
                                   fontSize: '11px',
                                   borderBottom: '1px solid #f7fafc',
                                   backgroundColor: actorAccountId === t.trader_id ? '#ebf8ff' : 'transparent',
@@ -4045,7 +4749,7 @@ function App() {
                 <span className="anomaly-control-label" title="Simulated target volume or severity distribution parameters.">
                   Attack Intensity Profile
                 </span>
-                <select 
+                <select
                   className="anomaly-control-input"
                   value={customSeverity}
                   onChange={e => setCustomSeverity(e.target.value as any)}
@@ -4062,10 +4766,10 @@ function App() {
                 <span className="anomaly-control-label" title="Percentage of rogue orders placed that are immediately canceled before matching.">
                   Order Cancellation Force: {customCancelRatio}%
                 </span>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="100" 
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
                   className="anomaly-control-slider"
                   value={customCancelRatio}
                   onChange={e => setCustomCancelRatio(parseInt(e.target.value))}
@@ -4077,10 +4781,10 @@ function App() {
                 <span className="anomaly-control-label" title="Avg latency in ms between placement and cancellation of rogue orders.">
                   Cancellation Median Speed: {customCancelMedian} ms
                 </span>
-                <input 
-                  type="range" 
-                  min="10" 
-                  max="2000" 
+                <input
+                  type="range"
+                  min="10"
+                  max="2000"
                   step="10"
                   className="anomaly-control-slider"
                   value={customCancelMedian}
@@ -4093,8 +4797,8 @@ function App() {
                 <span className="anomaly-control-label" title="Total count of simulated order actions executed.">
                   Rogue Orders Count
                 </span>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   className="anomaly-control-input"
                   value={customOrderCount}
                   onChange={e => setCustomOrderCount(Math.max(1, parseInt(e.target.value) || 1))}
@@ -4106,10 +4810,10 @@ function App() {
                 <span className="anomaly-control-label" title="Rogue targeting threshold for shifting the order book spread.">
                   Target Price Shift: {customPriceImpact}%
                 </span>
-                <input 
-                  type="range" 
-                  min="0.1" 
-                  max="10.0" 
+                <input
+                  type="range"
+                  min="0.1"
+                  max="10.0"
                   step="0.1"
                   className="anomaly-control-slider"
                   value={customPriceImpact}
@@ -4128,7 +4832,7 @@ function App() {
       {/* 2. Main View Grid */}
       {currentView === 'compliance' ? (
         <main className="dashboard-grid" style={{ display: 'flex', flexDirection: 'row', flex: 1, overflow: 'hidden', height: 'calc(100vh - 52px - 36px)' }}>
-          
+
           {/* Left Side Watchlist */}
           <section className="watchlist-panel" style={{ width: watchlistWidth, flexShrink: 0 }}>
             <div className="watchlist-header">
@@ -4137,13 +4841,13 @@ function App() {
                   Watchlist <span className="watchlist-count-badge">{filteredInstruments.length + filteredStaticWatchlist.length}</span>
                 </span>
               </div>
-              
+
               <div className="watchlist-search-container">
                 <Search size={12} className="text-muted" />
-                <input 
-                  type="text" 
-                  className="watchlist-search-input" 
-                  placeholder="Filter watchlist..." 
+                <input
+                  type="text"
+                  className="watchlist-search-input"
+                  placeholder="Filter watchlist..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
@@ -4156,8 +4860,8 @@ function App() {
                 const isSelected = inst.instrument_id === activeInstrumentId;
                 const isUp = inst.change >= 0;
                 return (
-                  <div 
-                    key={inst.instrument_id} 
+                  <div
+                    key={inst.instrument_id}
                     className={`watchlist-item ${isSelected ? 'active' : ''}`}
                     onClick={() => setActiveInstrumentId(inst.instrument_id)}
                   >
@@ -4179,8 +4883,8 @@ function App() {
                       </span>
                     </div>
                     <div className="watchlist-item-actions">
-                      <button 
-                        className="quick-btn buy" 
+                      <button
+                        className="quick-btn buy"
                         style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: 'var(--buy-green)', color: 'white' }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -4190,8 +4894,8 @@ function App() {
                       >
                         BUY
                       </button>
-                      <button 
-                        className="quick-btn sell" 
+                      <button
+                        className="quick-btn sell"
                         style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: 'var(--sell-red)', color: 'white' }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -4210,8 +4914,8 @@ function App() {
               {filteredStaticWatchlist.map(inst => {
                 const isUp = inst.change >= 0;
                 return (
-                  <div 
-                    key={inst.symbol} 
+                  <div
+                    key={inst.symbol}
                     className="watchlist-item"
                     onClick={() => triggerToast(`${inst.symbol} is currently simulated. Select RELIANCE or HDFCBANK to replay live data.`)}
                   >
@@ -4233,8 +4937,8 @@ function App() {
                       </span>
                     </div>
                     <div className="watchlist-item-actions">
-                      <button 
-                        className="quick-btn buy" 
+                      <button
+                        className="quick-btn buy"
                         style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: 'var(--buy-green)', color: 'white' }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -4243,8 +4947,8 @@ function App() {
                       >
                         BUY
                       </button>
-                      <button 
-                        className="quick-btn sell" 
+                      <button
+                        className="quick-btn sell"
                         style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: 'var(--sell-red)', color: 'white' }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -4260,7 +4964,7 @@ function App() {
             </div>
           </section>
 
-          <div 
+          <div
             className={`resizer-handle ${isResizingLeft ? 'active' : ''}`}
             onMouseDown={(e) => startResizing(e, 'left')}
             style={{
@@ -4328,19 +5032,19 @@ function App() {
                 <span style={{ color: '#858994', fontSize: '10px', paddingRight: '6px' }}>View Mode:</span>
                 <button className="chart-overlay-btn active">Candlesticks</button>
                 <button className="chart-overlay-btn">Order Visualizer</button>
-                
+
                 {/* Settings Toggle Button */}
-                <button 
+                <button
                   className={`chart-overlay-btn ${showSettingsPanel ? 'active' : ''}`}
                   onClick={() => setShowSettingsPanel(!showSettingsPanel)}
                   style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '8px' }}
                 >
                   <Settings size={11} /> Settings
                 </button>
-                
+
                 <span className="nse-badge" style={{ marginLeft: 'auto', marginRight: '8px' }}>NSE DATA STREAM</span>
               </div>
-              
+
               {showSettingsPanel && (
                 <div className="chart-settings-dropdown" style={{
                   position: 'absolute',
@@ -4363,19 +5067,19 @@ function App() {
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '6px', marginBottom: '4px' }}>
                     <span style={{ fontWeight: 'bold', fontSize: '12px', color: '#fff' }}>Chart Settings</span>
-                    <button 
+                    <button
                       onClick={() => setShowSettingsPanel(false)}
                       style={{ background: 'none', border: 'none', color: '#858994', cursor: 'pointer', padding: '0 4px', fontSize: '13px' }}
                     >
                       ✕
                     </button>
                   </div>
-                  
+
                   {/* Theme Selector */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>Chart Theme</span>
                     <div style={{ display: 'flex', gap: '4px' }}>
-                      <button 
+                      <button
                         onClick={() => setChartTheme('dark')}
                         style={{
                           backgroundColor: chartTheme === 'dark' ? '#2b6cb0' : 'rgba(255,255,255,0.05)',
@@ -4389,7 +5093,7 @@ function App() {
                       >
                         Dark
                       </button>
-                      <button 
+                      <button
                         onClick={() => setChartTheme('light')}
                         style={{
                           backgroundColor: chartTheme === 'light' ? '#2b6cb0' : 'rgba(255,255,255,0.05)',
@@ -4410,9 +5114,9 @@ function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>Bullish (Up) Color</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <input 
-                        type="color" 
-                        value={chartUpColor} 
+                      <input
+                        type="color"
+                        value={chartUpColor}
                         onChange={(e) => setChartUpColor(e.target.value)}
                         style={{ width: '22px', height: '22px', border: 'none', borderRadius: '4px', cursor: 'pointer', backgroundColor: 'transparent' }}
                       />
@@ -4424,9 +5128,9 @@ function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>Bearish (Down) Color</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <input 
-                        type="color" 
-                        value={chartDownColor} 
+                      <input
+                        type="color"
+                        value={chartDownColor}
                         onChange={(e) => setChartDownColor(e.target.value)}
                         style={{ width: '22px', height: '22px', border: 'none', borderRadius: '4px', cursor: 'pointer', backgroundColor: 'transparent' }}
                       />
@@ -4438,8 +5142,8 @@ function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>Grid Lines</span>
                     <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={showGridLines}
                         onChange={(e) => setShowGridLines(e.target.checked)}
                         style={{ cursor: 'pointer', marginRight: '4px' }}
@@ -4452,7 +5156,7 @@ function App() {
                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', marginTop: '4px' }}>
                     <span style={{ color: '#858994', display: 'block', marginBottom: '6px' }}>Color Presets</span>
                     <div style={{ display: 'flex', gap: '6px' }}>
-                      <button 
+                      <button
                         onClick={() => {
                           setChartUpColor('#26a69a');
                           setChartDownColor('#ef5350');
@@ -4474,8 +5178,8 @@ function App() {
                         <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef5350' }} />
                         Standard
                       </button>
-                      
-                      <button 
+
+                      <button
                         onClick={() => {
                           setChartUpColor('#1a73e8');
                           setChartDownColor('#ff9800');
@@ -4498,7 +5202,7 @@ function App() {
                         Shield
                       </button>
 
-                      <button 
+                      <button
                         onClick={() => {
                           setChartUpColor('#ffffff');
                           setChartDownColor('#475569');
@@ -4562,7 +5266,7 @@ function App() {
                   </div>
                 </div>
               )}
-              
+
               <div ref={chartContainerRef} className="chart-container-div" />
             </div>
 
@@ -4600,8 +5304,8 @@ function App() {
                   <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 'bold' }}>
                     <ShieldAlert size={16} className="text-down" /> Threat Intelligence Incident Triage
                   </h3>
-                  <button 
-                    className="watchlist-btn" 
+                  <button
+                    className="watchlist-btn"
                     onClick={() => {
                       setShowCompliancePanel(false);
                       setTriageReport(null);
@@ -4616,10 +5320,10 @@ function App() {
                     <span>Incident Reference: {surveillanceAlert.alert_id}</span>
                     <span className={`alert-severity-badge ${surveillanceAlert.severity}`}>{surveillanceAlert.severity}</span>
                   </div>
-                  
+
                   <div className="alert-card-body">
                     <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '8px' }}>{surveillanceAlert.description}</p>
-                    
+
                     <div className="alert-evidence-grid">
                       <div className="evidence-item">
                         <span className="evidence-label">Cancel Ratio</span>
@@ -4640,8 +5344,8 @@ function App() {
                     </div>
 
                     {!triageReport && (
-                      <button 
-                        className="triage-analyze-btn" 
+                      <button
+                        className="triage-analyze-btn"
                         onClick={handleRunTriage}
                         disabled={triageLoading}
                         style={{ marginTop: '12px' }}
@@ -4668,9 +5372,9 @@ function App() {
                           </span>
                           <span className={`verdict-badge ${triageReport.verdict}`}>{triageReport.verdict}</span>
                         </div>
-                        
+
                         <p style={{ fontWeight: '500', marginBottom: '8px', fontSize: '11px' }}>{triageReport.rationale}</p>
-                        
+
                         <div style={{ fontSize: '10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
                           <div>Cancel vs Baseline: <strong>{triageReport.supporting_evidence.anomaly_vs_baseline}</strong></div>
                           <div>Triage Confidence: <strong>{(triageReport.confidence * 100).toFixed(0)}%</strong></div>
@@ -4684,11 +5388,11 @@ function App() {
                         </div>
 
                         <div style={{ display: 'flex', gap: '12px', marginTop: '16px', width: '100%' }}>
-                          <button 
-                            className="place-order-btn buy" 
+                          <button
+                            className="place-order-btn buy"
                             style={{ flex: 1, padding: '10px 16px', fontSize: '12.5px', fontWeight: 'bold', height: '38px', cursor: 'pointer', borderRadius: '6px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             onClick={() => {
-                              setIncidents(prev => prev.map(inc => inc.id === surveillanceAlert.alert_id ? { ...inc, status: 'ESCALATED' } : inc));
+                              handleUpdateIncidentStatus(surveillanceAlert.alert_id, 'ESCALATED');
                               triggerToast("Alert escalated to Compliance Desk L2. Order history archived.");
                               setSurveillanceAlert(null);
                               setTriageReport(null);
@@ -4697,11 +5401,11 @@ function App() {
                           >
                             Confirm & Escalate
                           </button>
-                          <button 
-                            className="place-order-btn sell" 
+                          <button
+                            className="place-order-btn sell"
                             style={{ flex: 1, padding: '10px 16px', fontSize: '12.5px', fontWeight: 'bold', height: '38px', cursor: 'pointer', borderRadius: '6px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             onClick={() => {
-                              setIncidents(prev => prev.map(inc => inc.id === surveillanceAlert.alert_id ? { ...inc, status: 'DISMISSED' } : inc));
+                              handleUpdateIncidentStatus(surveillanceAlert.alert_id, 'DISMISSED');
                               triggerToast("Compliance alert dismissed as false positive.");
                               setSurveillanceAlert(null);
                               setTriageReport(null);
@@ -4718,54 +5422,172 @@ function App() {
               </div>
             )}
 
-            {/* Positions Table */}
-            <div className="portfolio-panel" style={{ marginTop: '12px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <h3 style={{ fontSize: '12px', fontWeight: 'bold' }}>Margin Positions & Holdings</h3>
+            {/* Tabbed Portfolio & Pending Panel */}
+            <div className="portfolio-panel" style={{ marginTop: '12px', borderTop: '1px solid var(--border)', paddingTop: '12px', fontFamily: 'Arial, sans-serif' }}>
+              <div style={{ display: 'flex', gap: '20px', borderBottom: '1px solid var(--border)', marginBottom: '12px', paddingBottom: '2px' }}>
+                <button
+                  onClick={() => setPortfolioTab('positions')}
+                  style={{
+                    padding: '4px 8px 6px 8px',
+                    fontSize: '11.5px',
+                    fontWeight: 'bold',
+                    border: 'none',
+                    background: 'none',
+                    borderBottom: portfolioTab === 'positions' ? '2.5px solid var(--primary)' : '2.5px solid transparent',
+                    color: portfolioTab === 'positions' ? 'var(--primary)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    fontFamily: 'Arial, sans-serif'
+                  }}
+                >
+                  Margin Positions ({positions.length})
+                </button>
+                <button
+                  onClick={() => setPortfolioTab('pending')}
+                  style={{
+                    padding: '4px 8px 6px 8px',
+                    fontSize: '11.5px',
+                    fontWeight: 'bold',
+                    border: 'none',
+                    background: 'none',
+                    borderBottom: portfolioTab === 'pending' ? '2.5px solid var(--primary)' : '2.5px solid transparent',
+                    color: portfolioTab === 'pending' ? 'var(--primary)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    fontFamily: 'Arial, sans-serif'
+                  }}
+                >
+                  Pending Desk Orders ({pendingOrders.length})
+                </button>
               </div>
-              
-              {positions.length === 0 ? (
-                <div className="empty-state" style={{ padding: '20px', fontSize: '11px' }}>
-                  No open margin positions. Use the right sidebar to trade.
-                </div>
-              ) : (
-                <table className="portfolio-table">
-                  <thead>
-                    <tr>
-                      <th>Symbol</th>
-                      <th>Type</th>
-                      <th>Qty</th>
-                      <th>Avg Price</th>
-                      <th>LTP</th>
-                      <th>Day P&L</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {positions.map((pos, idx) => (
-                      <tr key={idx}>
-                        <td style={{ fontWeight: 'bold' }}>{pos.symbol}</td>
-                        <td style={{ color: pos.type === 'BUY' ? '#1e88e5' : '#e53935', fontWeight: 'bold' }}>
-                          {pos.type}
-                        </td>
-                        <td>{pos.qty}</td>
-                        <td>₹{pos.avgPrice.toFixed(2)}</td>
-                        <td>₹{pos.currentPrice.toFixed(2)}</td>
-                        <td className={`pnl-text ${pos.pnl >= 0 ? 'text-up' : 'text-down'}`}>
-                          ₹{pos.pnl.toFixed(2)}
-                        </td>
-                        <td>
-                          <button className="close-pos-btn" onClick={() => handleClosePosition(idx)}>Square Off</button>
-                        </td>
+
+              {portfolioTab === 'positions' ? (
+                positions.length === 0 ? (
+                  <div className="empty-state" style={{ padding: '20px', fontSize: '11px' }}>
+                    No open margin positions. Use the right sidebar to trade.
+                  </div>
+                ) : (
+                  <table className="portfolio-table">
+                    <thead>
+                      <tr>
+                        <th>Symbol</th>
+                        <th>Type</th>
+                        <th>Qty</th>
+                        <th>Avg Price</th>
+                        <th>LTP</th>
+                        <th>Day P&L</th>
+                        <th>Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {positions.map((pos, idx) => (
+                        <tr key={idx}>
+                          <td style={{ fontWeight: 'bold' }}>{pos.symbol}</td>
+                          <td style={{ color: pos.type === 'BUY' ? '#1e88e5' : '#e53935', fontWeight: 'bold' }}>
+                            {pos.type}
+                          </td>
+                          <td>{pos.qty}</td>
+                          <td>₹{pos.avgPrice.toFixed(2)}</td>
+                          <td>₹{pos.currentPrice.toFixed(2)}</td>
+                          <td className={`pnl-text ${pos.pnl >= 0 ? 'text-up' : 'text-down'}`}>
+                            ₹{pos.pnl.toFixed(2)}
+                          </td>
+                          <td>
+                            <button className="close-pos-btn" onClick={() => handleClosePosition(idx)}>Square Off</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              ) : (
+                pendingOrders.length === 0 ? (
+                  <div className="empty-state" style={{ padding: '20px', fontSize: '11px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    No active pending orders. Disable 'Auto-Execute' to place pending limit orders.
+                  </div>
+                ) : (
+                  <table className="portfolio-table">
+                    <thead>
+                      <tr>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Quantity</th>
+                        <th>Limit Price</th>
+                        <th>Trader Details</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingOrders.map((order, idx) => (
+                        <tr key={order.id || idx}>
+                          <td style={{ fontWeight: 'bold' }}>{order.symbol}</td>
+                          <td style={{ color: order.side === 'BUY' ? 'var(--buy-green)' : 'var(--sell-red)', fontWeight: 'bold' }}>
+                            {order.side}
+                          </td>
+                          <td>{order.quantity}</td>
+                          <td style={{ fontWeight: 'bold' }}>₹{parseFloat(order.price).toFixed(2)}</td>
+                          <td style={{ fontSize: '10px' }}>
+                            <span style={{ fontWeight: 'bold', display: 'block' }}>{order.trader_name}</span>
+                            <span style={{ color: 'var(--text-muted)' }}>ID: {order.trader_id}</span>
+                          </td>
+                          <td>
+                            <span style={{
+                              fontSize: '9px',
+                              backgroundColor: 'rgba(139, 92, 246, 0.12)',
+                              color: 'var(--primary)',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: 'bold',
+                              textTransform: 'uppercase'
+                            }}>
+                              {order.status}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '5px' }}>
+                              <button
+                                className="close-pos-btn"
+                                style={{
+                                  backgroundColor: '#10b981',
+                                  color: 'white',
+                                  padding: '3px 8px',
+                                  fontSize: '10px',
+                                  borderRadius: '3px',
+                                  border: 'none',
+                                  cursor: 'pointer'
+                                }}
+                                onClick={() => handleFulfillOrder(order)}
+                              >
+                                Execute
+                              </button>
+                              <button
+                                className="close-pos-btn"
+                                style={{
+                                  backgroundColor: '#ef4444',
+                                  color: 'white',
+                                  padding: '3px 8px',
+                                  fontSize: '10px',
+                                  borderRadius: '3px',
+                                  border: 'none',
+                                  cursor: 'pointer'
+                                }}
+                                onClick={() => handleCancelOrder(order.id)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
               )}
             </div>
           </section>
 
-          <div 
+          <div
             className={`resizer-handle ${isResizingRight ? 'active' : ''}`}
             onMouseDown={(e) => startResizing(e, 'right')}
             style={{
@@ -4818,14 +5640,14 @@ function App() {
 
               {/* Sub-options */}
               <div className="sub-options-container">
-                <div 
-                  className={`sub-option-btn ${orderDuration === 'DELIVERY' ? 'active buy-active' : ''}`} 
+                <div
+                  className={`sub-option-btn ${orderDuration === 'DELIVERY' ? 'active buy-active' : ''}`}
                   onClick={() => setOrderDuration('DELIVERY')}
                 >
                   Delivery (Longterm)
                 </div>
-                <div 
-                  className={`sub-option-btn ${orderDuration === 'INTRADAY' ? 'active buy-active' : ''}`} 
+                <div
+                  className={`sub-option-btn ${orderDuration === 'INTRADAY' ? 'active buy-active' : ''}`}
                   onClick={() => setOrderDuration('INTRADAY')}
                 >
                   Intraday (Same day)
@@ -4838,10 +5660,10 @@ function App() {
                   <span className="input-label">Quantity</span>
                   <div className="numeric-input-wrapper">
                     <button className="num-adjust-btn" onClick={() => setOrderQty(Math.max(1, orderQty - 5))}>-</button>
-                    <input 
-                      type="text" 
-                      className="num-input" 
-                      value={orderQty} 
+                    <input
+                      type="text"
+                      className="num-input"
+                      value={orderQty}
                       onChange={e => setOrderQty(Math.max(1, parseInt(e.target.value) || 1))}
                     />
                     <button className="num-adjust-btn" onClick={() => setOrderQty(orderQty + 5)}>+</button>
@@ -4850,7 +5672,7 @@ function App() {
 
                 <div className="input-group">
                   <span className="input-label">Price Type</span>
-                  <select 
+                  <select
                     className="dropdown-input"
                     value={orderPriceType}
                     onChange={e => {
@@ -4870,22 +5692,22 @@ function App() {
                 <div className="input-group" style={{ gridColumn: 'span 2' }}>
                   <span className="input-label">Price</span>
                   <div className="numeric-input-wrapper">
-                    <button 
-                      className="num-adjust-btn" 
+                    <button
+                      className="num-adjust-btn"
                       onClick={() => setOrderPrice((Math.max(0.05, parseFloat(orderPrice) - 0.05)).toFixed(2))}
                       disabled={orderPriceType === 'MARKET'}
                     >
                       -
                     </button>
-                    <input 
-                      type="text" 
-                      className="num-input" 
-                      value={orderPrice} 
+                    <input
+                      type="text"
+                      className="num-input"
+                      value={orderPrice}
                       onChange={e => setOrderPrice(e.target.value)}
                       disabled={orderPriceType === 'MARKET'}
                     />
-                    <button 
-                      className="num-adjust-btn" 
+                    <button
+                      className="num-adjust-btn"
                       onClick={() => setOrderPrice((parseFloat(orderPrice) + 0.05).toFixed(2))}
                       disabled={orderPriceType === 'MARKET'}
                     >
@@ -4893,6 +5715,18 @@ function App() {
                     </button>
                   </div>
                 </div>
+              </div>
+
+              <div className="input-row" style={{ marginTop: '8px', marginBottom: '8px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: '500', color: 'var(--text-main)' }}>
+                  <input
+                    type="checkbox"
+                    checked={orderAutoExecute}
+                    onChange={e => setOrderAutoExecute(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span>Auto-Execute Order (Instantly fills)</span>
+                </label>
               </div>
 
               {/* Insufficient Funds Box */}
@@ -4904,7 +5738,7 @@ function App() {
 
               {/* Market Depth */}
               <div className="market-depth-section">
-                <div 
+                <div
                   className="market-depth-toggle"
                   onClick={() => setIsMarketDepthCollapsed(!isMarketDepthCollapsed)}
                   style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
@@ -4928,13 +5762,13 @@ function App() {
                         {Array.from({ length: 5 }).map((_, idx) => {
                           const bid = depthData.bids[idx] || { price: 0, qty: 0 };
                           const ask = depthData.asks[idx] || { price: 0, qty: 0 };
-                          
+
                           const bidBarPct = maxBidQty > 0 ? (bid.qty / maxBidQty) * 100 : 0;
                           const askBarPct = maxAskQty > 0 ? (ask.qty / maxAskQty) * 100 : 0;
 
                           return (
-                            <tr 
-                              key={idx} 
+                            <tr
+                              key={idx}
                               className="depth-row"
                               onClick={() => {
                                 if (orderPriceType === 'LIMIT') {
@@ -4944,11 +5778,37 @@ function App() {
                             >
                               <td>{bid.qty > 0 ? bid.qty : '-'}</td>
                               <td className="text-up" style={{ position: 'relative' }}>
-                                {bid.price > 0 ? bid.price.toFixed(2) : '-'}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
+                                  <span>{bid.price > 0 ? bid.price.toFixed(2) : '-'}</span>
+                                  {bid.isOurOrder && (
+                                    <span style={{
+                                      fontSize: '7.5px',
+                                      backgroundColor: '#8b5cf6',
+                                      color: 'white',
+                                      padding: '1px 3.5px',
+                                      borderRadius: '3px',
+                                      fontWeight: '800',
+                                      lineHeight: '1'
+                                    }}>DESK</span>
+                                  )}
+                                </div>
                                 <div className="depth-bar-bg bid" style={{ width: `${bidBarPct}%` }} />
                               </td>
                               <td className="text-down" style={{ position: 'relative' }}>
-                                {ask.price > 0 ? ask.price.toFixed(2) : '-'}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
+                                  <span>{ask.price > 0 ? ask.price.toFixed(2) : '-'}</span>
+                                  {ask.isOurOrder && (
+                                    <span style={{
+                                      fontSize: '7.5px',
+                                      backgroundColor: '#8b5cf6',
+                                      color: 'white',
+                                      padding: '1px 3.5px',
+                                      borderRadius: '3px',
+                                      fontWeight: '800',
+                                      lineHeight: '1'
+                                    }}>DESK</span>
+                                  )}
+                                </div>
                                 <div className="depth-bar-bg ask" style={{ width: `${askBarPct}%` }} />
                               </td>
                               <td>{ask.qty > 0 ? ask.qty : '-'}</td>
@@ -4962,7 +5822,7 @@ function App() {
                       <span>Total Buy: <strong>{totalBuyQty.toLocaleString()}</strong> ({buyRatio.toFixed(0)}%)</span>
                       <span>Total Sell: <strong>{totalSellQty.toLocaleString()}</strong> ({sellRatio.toFixed(0)}%)</span>
                     </div>
-                    
+
                     <div className="depth-ratio-bar-wrapper">
                       <div className="ratio-bar-bid" style={{ width: `${buyRatio}%` }} />
                       <div className="ratio-bar-ask" style={{ width: `${sellRatio}%` }} />
@@ -4983,7 +5843,7 @@ function App() {
                 <span>Required Margin</span>
                 <span className="cost-val">₹{requiredFunds.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
-              
+
               <div className="cost-row available">
                 <span>Available Margin</span>
                 <span className={`cost-val ${funds >= requiredFunds ? 'green' : 'red'}`}>
@@ -4992,16 +5852,16 @@ function App() {
               </div>
 
               <div className="dual-order-buttons">
-                <button 
+                <button
                   className="place-order-btn buy"
-                  onClick={() => { setOrderAction('BUY'); handlePlaceOrder(); }}
+                  onClick={() => { setOrderAction('BUY'); handlePlaceOrder('BUY'); }}
                   disabled={!hasSufficientFunds}
                 >
                   BUY LONG
                 </button>
-                <button 
+                <button
                   className="place-order-btn sell"
-                  onClick={() => { setOrderAction('SELL'); handlePlaceOrder(); }}
+                  onClick={() => { setOrderAction('SELL'); handlePlaceOrder('SELL'); }}
                   disabled={!hasSufficientFunds}
                 >
                   SELL SHORT
@@ -5011,64 +5871,174 @@ function App() {
           </section>
         </main>
       ) : currentView === 'incidents' ? (
-        <div className="incidents-container">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="incidents-container" style={{ padding: '20px', backgroundColor: '#f8fafc', height: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div>
-              <h2 style={{ fontSize: '18px', fontWeight: '800' }}>Compliance Incident Log</h2>
+              <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>Compliance Incident Log</h2>
               <p style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '2px' }}>Historical and newly triggered trade surveillance incidents.</p>
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '20px', marginTop: '10px' }}>
             {/* Table list */}
-            <div>
-              <table className="incident-table">
-                <thead>
-                  <tr>
-                    <th>Incident ID</th>
-                    <th>Ticker</th>
-                    <th>Pattern Flagged</th>
-                    <th>Severity</th>
-                    <th>Timestamp</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {incidents.map((inc) => (
-                    <tr 
-                      key={inc.id} 
-                      style={{ cursor: 'pointer', backgroundColor: selectedIncident?.id === inc.id ? 'rgba(0,0,0,0.04)' : '' }}
-                      onClick={() => setSelectedIncident(inc)}
-                    >
-                      <td style={{ fontWeight: 'bold' }}>{inc.id}</td>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <img className="company-logo" src={getLogoUrl(inc.symbol)} alt={inc.symbol} />
-                          {inc.symbol}
-                        </div>
-                      </td>
-                      <td>{inc.pattern}</td>
-                      <td>
-                        <span className={`alert-severity-badge ${inc.severity}`} style={{ fontSize: '9px', padding: '2px 6px' }}>{inc.severity}</span>
-                      </td>
-                      <td style={{ color: 'var(--text-muted)' }}>{formatHumanReadableTime(inc.timestamp)}</td>
-                      <td>
-                        <span style={{ 
-                          fontSize: '10px', 
-                          fontWeight: 'bold',
-                          color: inc.status === 'PENDING' ? '#ff9800' : inc.status === 'ESCALATED' ? '#e53935' : '#1a73e8'
-                        }}>
-                          {inc.status}
-                        </span>
-                      </td>
+            <div style={{
+              backgroundColor: '#ffffff',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              padding: '16px',
+              boxShadow: 'var(--shadow-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px'
+            }}>
+              {/* Toolbar */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '15px' }}>
+                <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+                  <input
+                    type="text"
+                    placeholder="Search by ID, Ticker, Pattern, Severity, Status..."
+                    value={incidentSearchQuery}
+                    onChange={(e) => setIncidentSearchQuery(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px 8px 34px',
+                      fontSize: '12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      backgroundColor: '#f8fafc',
+                      color: 'var(--text-main)',
+                      outline: 'none'
+                    }}
+                  />
+                  <span style={{ position: 'absolute', left: '10px', top: '53%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}>
+                    <Search size={14} />
+                  </span>
+                </div>
+
+                <button
+                  className="place-order-btn sell"
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: '11px',
+                    width: 'auto',
+                    backgroundColor: selectedIncidentIds.length > 0 ? '#dc2626' : '#94a3b8',
+                    opacity: selectedIncidentIds.length > 0 ? 1 : 0.6,
+                    cursor: selectedIncidentIds.length > 0 ? 'pointer' : 'not-allowed',
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: '#ffffff',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  disabled={selectedIncidentIds.length === 0}
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <Trash size={14} /> Delete Selected ({selectedIncidentIds.length})
+                </button>
+              </div>
+
+              {/* Scrollable wrapper */}
+              <div style={{
+                maxHeight: '520px',
+                overflowY: 'auto',
+                border: '1px solid var(--border)',
+                borderRadius: '6px'
+              }}>
+                <table className="incident-table" style={{ margin: 0, border: 'none', width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 10, width: '40px', padding: '10px 12px', boxShadow: 'inset 0 -1px 0 var(--border)' }}>
+                        <input
+                          type="checkbox"
+                          checked={filteredIncidents.length > 0 && selectedIncidentIds.length === filteredIncidents.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedIncidentIds(filteredIncidents.map(inc => inc.id));
+                            } else {
+                              setSelectedIncidentIds([]);
+                            }
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </th>
+                      <th style={{ position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 10, padding: '10px 12px', boxShadow: 'inset 0 -1px 0 var(--border)' }}>Incident ID</th>
+                      <th style={{ position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 10, padding: '10px 12px', boxShadow: 'inset 0 -1px 0 var(--border)' }}>Ticker</th>
+                      <th style={{ position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 10, padding: '10px 12px', boxShadow: 'inset 0 -1px 0 var(--border)' }}>Pattern Flagged</th>
+                      <th style={{ position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 10, padding: '10px 12px', boxShadow: 'inset 0 -1px 0 var(--border)' }}>Severity</th>
+                      <th style={{ position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 10, padding: '10px 12px', boxShadow: 'inset 0 -1px 0 var(--border)' }}>Timestamp</th>
+                      <th style={{ position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 10, padding: '10px 12px', boxShadow: 'inset 0 -1px 0 var(--border)' }}>Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filteredIncidents.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                          No incidents found matching query.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredIncidents.map((inc) => (
+                        <tr
+                          key={inc.id}
+                          style={{ cursor: 'pointer', backgroundColor: selectedIncident?.id === inc.id ? 'rgba(0,0,0,0.04)' : '' }}
+                          onClick={() => setSelectedIncident(inc)}
+                        >
+                          <td style={{ padding: '10px 12px' }} onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIncidentIds.includes(inc.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedIncidentIds(prev => [...prev, inc.id]);
+                                } else {
+                                  setSelectedIncidentIds(prev => prev.filter(id => id !== inc.id));
+                                }
+                              }}
+                              style={{ cursor: 'pointer' }}
+                            />
+                          </td>
+                          <td style={{ fontWeight: 'bold', padding: '10px 12px' }}>{inc.id}</td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <img className="company-logo" src={getLogoUrl(inc.symbol)} alt={inc.symbol}
+                                style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'contain', border: '1px solid #e2e8f0', background: '#fff', padding: '2px', flexShrink: 0 }}
+                                onError={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${inc.symbol}&size=22&background=7c3aed&color=fff&bold=true&font-size=0.45`; }}
+                              />
+                              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+                                <span style={{ fontWeight: '700', fontSize: '11.5px', color: '#1e293b' }}>{inc.symbol}</span>
+                                <span style={{ fontSize: '9.5px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' }}>
+                                  {companyDetails[inc.symbol]?.description?.split(' ').slice(0, 4).join(' ') || 
+                                   instruments.find(i => i.symbol === inc.symbol)?.name || inc.symbol}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>{inc.pattern}</td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <span className={`alert-severity-badge ${inc.severity}`} style={{ fontSize: '9px', padding: '2px 6px' }}>{inc.severity}</span>
+                          </td>
+                          <td style={{ color: 'var(--text-muted)', padding: '10px 12px' }}>{formatHumanReadableTime(inc.timestamp)}</td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <span style={{
+                              fontSize: '10px',
+                              fontWeight: 'bold',
+                              color: inc.status === 'PENDING' ? '#ff9800' : inc.status === 'ESCALATED' ? '#e53935' : '#1a73e8'
+                            }}>
+                              {inc.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {/* Incident Details Card */}
-            {selectedIncident && (
+            {selectedIncident ? (
               <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '16px', backgroundColor: 'var(--bg-main)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '10px', marginBottom: '10px' }}>
                   <span style={{ fontWeight: '800', fontSize: '13px' }}>Incident: {selectedIncident.id}</span>
@@ -5076,79 +6046,141 @@ function App() {
                 </div>
 
                 {/* Tab buttons to toggle between Summary and Interactive Graph */}
-                <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border)', paddingBottom: '8px', marginBottom: '12px' }}>
-                  <button 
-                    style={{ 
-                      background: 'none', 
-                      border: 'none', 
-                      fontWeight: activeDetailTab === 'graph' ? 'bold' : 'normal', 
-                      color: activeDetailTab === 'graph' ? '#1a73e8' : 'var(--text-muted)', 
-                      borderBottom: activeDetailTab === 'graph' ? '2px solid #1a73e8' : 'none',
-                      paddingBottom: '4px',
-                      cursor: 'pointer', 
-                      fontSize: '11px' 
-                    }}
-                    onClick={() => setActiveDetailTab('graph')}
-                  >
-                    Interactive Graph
-                  </button>
-                  <button 
-                    style={{ 
-                      background: 'none', 
-                      border: 'none', 
-                      fontWeight: activeDetailTab === 'summary' ? 'bold' : 'normal', 
-                      color: activeDetailTab === 'summary' ? '#1a73e8' : 'var(--text-muted)', 
-                      borderBottom: activeDetailTab === 'summary' ? '2px solid #1a73e8' : 'none',
-                      paddingBottom: '4px',
-                      cursor: 'pointer', 
-                      fontSize: '11px' 
-                    }}
-                    onClick={() => setActiveDetailTab('summary')}
-                  >
-                    Details Summary
-                  </button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        fontWeight: activeDetailTab === 'graph' ? 'bold' : 'normal',
+                        color: activeDetailTab === 'graph' ? '#1a73e8' : 'var(--text-muted)',
+                        borderBottom: activeDetailTab === 'graph' ? '2px solid #1a73e8' : 'none',
+                        paddingBottom: '4px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                      onClick={() => setActiveDetailTab('graph')}
+                    >
+                      Interactive Graph
+                    </button>
+                    <button
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        fontWeight: activeDetailTab === 'summary' ? 'bold' : 'normal',
+                        color: activeDetailTab === 'summary' ? '#1a73e8' : 'var(--text-muted)',
+                        borderBottom: activeDetailTab === 'summary' ? '2px solid #1a73e8' : 'none',
+                        paddingBottom: '4px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                      onClick={() => setActiveDetailTab('summary')}
+                    >
+                      Details Summary
+                    </button>
+                  </div>
+
+                  {/* Actions row with premium themed icons */}
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => {
+                        setRcaSelectedIncident(selectedIncident);
+                        setCurrentView('rca');
+                      }}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '10px',
+                        fontWeight: 'bold',
+                        color: '#0d9488',
+                        border: '1px solid rgba(13, 148, 136, 0.2)',
+                        borderRadius: '4px',
+                        backgroundColor: '#f0fdfa',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                      title="Analyze in Root Cause Analysis"
+                    >
+                      <ExternalLink size={11} /> RCA
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        printIncidentReport(selectedIncident);
+                        triggerToast("Generating professional incident audit trail PDF...");
+                      }}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '10px',
+                        fontWeight: 'bold',
+                        color: '#475569',
+                        border: '1px solid rgba(71, 85, 105, 0.2)',
+                        borderRadius: '4px',
+                        backgroundColor: '#f1f5f9',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                      title="Export incident report PDF"
+                    >
+                      <FileText size={11} /> Export
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setSelectedIncidentIds([selectedIncident.id]);
+                        setShowDeleteConfirm(true);
+                      }}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '10px',
+                        fontWeight: 'bold',
+                        color: '#dc2626',
+                        border: '1px solid rgba(220, 38, 38, 0.2)',
+                        borderRadius: '4px',
+                        backgroundColor: '#fef2f2',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                      title="Delete permanently"
+                    >
+                      <Trash size={11} /> Delete
+                    </button>
+                  </div>
                 </div>
 
                 {activeDetailTab === 'graph' ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <IncidentGraph 
-                      incident={selectedIncident} 
+                    <IncidentGraph
+                      incident={selectedIncident}
                       onClose={() => setIsFullscreenGraph(true)}
                       onUpdateIncident={handleUpdateIncidentStatus}
                       triggerToast={triggerToast}
                     />
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '14px' }}>
-                      <button 
-                        className="place-order-btn buy" 
-                        style={{ padding: '6px 12px', fontSize: '11px' }}
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '14px', flexWrap: 'wrap' }}>
+                      <button
+                        className="place-order-btn buy"
+                        style={{ padding: '6px 12px', fontSize: '11px', flex: 1, minWidth: '120px' }}
                         onClick={() => {
-                          setIncidents(prev => prev.map(inc => inc.id === selectedIncident.id ? { ...inc, status: 'ESCALATED' } : inc));
-                          setSelectedIncident(prev => prev ? { ...prev, status: 'ESCALATED' } : null);
+                          handleUpdateIncidentStatus(selectedIncident.id, 'ESCALATED');
                           triggerToast("Incident Escalated.");
                         }}
                       >
                         Escalate to Regulator
                       </button>
-                      <button 
-                        className="place-order-btn sell" 
-                        style={{ padding: '6px 12px', fontSize: '11px' }}
+                      <button
+                        className="place-order-btn sell"
+                        style={{ padding: '6px 12px', fontSize: '11px', flex: 1, minWidth: '100px' }}
                         onClick={() => {
-                          setIncidents(prev => prev.map(inc => inc.id === selectedIncident.id ? { ...inc, status: 'DISMISSED' } : inc));
-                          setSelectedIncident(prev => prev ? { ...prev, status: 'DISMISSED' } : null);
+                          handleUpdateIncidentStatus(selectedIncident.id, 'DISMISSED');
                           triggerToast("Incident Dismissed.");
                         }}
                       >
                         Dismiss Case
-                      </button>
-                      <button 
-                        className="place-order-btn" 
-                        style={{ padding: '6px 12px', fontSize: '11px', backgroundColor: '#475569', color: 'white', width: 'auto' }}
-                        onClick={() => {
-                          printIncidentReport(selectedIncident);
-                          triggerToast("Generating professional incident audit trail PDF...");
-                        }}
-                      >
-                        Export PDF
                       </button>
                     </div>
                   </div>
@@ -5170,48 +6202,76 @@ function App() {
                       <span style={{ color: 'var(--text-muted)' }}>AI Confidence Score: </span>
                       <strong>{(selectedIncident.confidence * 100).toFixed(0)}%</strong>
                     </div>
-                    
+
                     <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '10px' }}>
                       <span style={{ fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Surveillance Evidence:</span>
                       <p style={{ color: '#4a4a50', lineHeight: 1.4 }}>{selectedIncident.evidence}</p>
                     </div>
 
+                    {selectedIncident.rca && (
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '10px' }}>
+                        <span style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', color: '#6d28d9' }}>
+                          <Sparkles size={11} /> Claude Root Cause Analysis (RCA):
+                        </span>
+                        <p style={{ color: '#4a4a50', lineHeight: 1.4, fontSize: '11px', whiteSpace: 'pre-line' }}>{selectedIncident.rca}</p>
+                      </div>
+                    )}
+
+                    {selectedIncident.report_content && (
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '10px' }}>
+                        <span style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', color: '#6d28d9' }}>
+                          <Sparkles size={11} /> Compliance Report Content:
+                        </span>
+                        <p style={{ color: '#4a4a50', lineHeight: 1.4, fontSize: '11px', whiteSpace: 'pre-line' }}>{selectedIncident.report_content}</p>
+                      </div>
+                    )}
+
                     <div style={{ display: 'flex', gap: '10px', marginTop: '14px' }}>
-                      <button 
-                        className="place-order-btn buy" 
-                        style={{ padding: '6px 12px', fontSize: '11px' }}
+                      <button
+                        className="place-order-btn buy"
+                        style={{ padding: '6px 12px', fontSize: '11px', flex: 1 }}
                         onClick={() => {
-                          setIncidents(prev => prev.map(inc => inc.id === selectedIncident.id ? { ...inc, status: 'ESCALATED' } : inc));
-                          setSelectedIncident(prev => prev ? { ...prev, status: 'ESCALATED' } : null);
+                          handleUpdateIncidentStatus(selectedIncident.id, 'ESCALATED');
                           triggerToast("Incident Escalated.");
                         }}
                       >
                         Escalate to Regulator
                       </button>
-                      <button 
-                        className="place-order-btn sell" 
-                        style={{ padding: '6px 12px', fontSize: '11px' }}
+                      <button
+                        className="place-order-btn sell"
+                        style={{ padding: '6px 12px', fontSize: '11px', flex: 1 }}
                         onClick={() => {
-                          setIncidents(prev => prev.map(inc => inc.id === selectedIncident.id ? { ...inc, status: 'DISMISSED' } : inc));
-                          setSelectedIncident(prev => prev ? { ...prev, status: 'DISMISSED' } : null);
+                          handleUpdateIncidentStatus(selectedIncident.id, 'DISMISSED');
                           triggerToast("Incident Dismissed.");
                         }}
                       >
                         Dismiss Case
                       </button>
-                      <button 
-                        className="place-order-btn" 
-                        style={{ padding: '6px 12px', fontSize: '11px', backgroundColor: '#475569', color: 'white', width: 'auto' }}
-                        onClick={() => {
-                          printIncidentReport(selectedIncident);
-                          triggerToast("Generating professional incident audit trail PDF...");
-                        }}
-                      >
-                        Export PDF
-                      </button>
                     </div>
                   </div>
                 )}
+              </div>
+            ) : (
+              <div style={{
+                border: '1px dashed var(--border)',
+                borderRadius: '8px',
+                padding: '40px 20px',
+                backgroundColor: 'var(--bg-main)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                textAlign: 'center',
+                gap: '12px',
+                color: '#64748b',
+                height: '100%',
+                minHeight: '400px'
+              }}>
+                <div style={{ fontSize: '32px' }}>🛡️</div>
+                <h3 style={{ fontSize: '13px', fontWeight: 'bold', margin: 0, color: 'var(--text-main)' }}>No Incident Selected</h3>
+                <p style={{ fontSize: '11px', margin: 0, maxWidth: '240px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                  Select an active surveillance incident from the ledger to view the AI forensic reconstruction graph and audit trail.
+                </p>
               </div>
             )}
           </div>
@@ -5318,14 +6378,14 @@ function App() {
               <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>Root Cause Analysis (RCA)</h2>
               <p style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>Detailed breakdown and reconstructed sequence of suspicious market actions.</p>
             </div>
-            
+
             {/* Searchable Dropdown for Incidents */}
             <div className="rca-dropdown-group" style={{ position: 'relative', display: 'flex', gap: '10px', alignItems: 'center' }}>
               <span style={{ fontSize: '11.5px', color: '#475569', fontWeight: '500' }}>Analyze Incident:</span>
               <div style={{ position: 'relative' }}>
-                <input 
-                  type="text" 
-                  placeholder="Search & select incident..." 
+                <input
+                  type="text"
+                  placeholder="Search & select incident..."
                   className="anomaly-control-input"
                   style={{ width: '280px', paddingRight: '24px', fontSize: '11px', height: '28px', borderRadius: '4px', border: '1px solid #cbd5e1', backgroundColor: 'white' }}
                   value={rcaSearchQuery}
@@ -5336,7 +6396,7 @@ function App() {
                   onFocus={() => setShowRcaIncidentDropdown(true)}
                 />
                 <ChevronDown size={14} style={{ position: 'absolute', right: '8px', top: '7px', color: '#64748b', pointerEvents: 'none' }} />
-                
+
                 {showRcaIncidentDropdown && (
                   <div style={{
                     position: 'absolute',
@@ -5356,12 +6416,12 @@ function App() {
                       .filter(inc => {
                         if (!rcaSearchQuery) return true;
                         const q = rcaSearchQuery.toLowerCase();
-                        return inc.id.toLowerCase().includes(q) || 
-                               inc.symbol.toLowerCase().includes(q) || 
-                               inc.pattern.toLowerCase().includes(q);
+                        return inc.id.toLowerCase().includes(q) ||
+                          inc.symbol.toLowerCase().includes(q) ||
+                          inc.pattern.toLowerCase().includes(q);
                       })
                       .map(inc => (
-                        <div 
+                        <div
                           key={inc.id}
                           style={{
                             padding: '8px 12px',
@@ -5398,14 +6458,14 @@ function App() {
                     {incidents.filter(inc => {
                       if (!rcaSearchQuery) return true;
                       const q = rcaSearchQuery.toLowerCase();
-                      return inc.id.toLowerCase().includes(q) || 
-                             inc.symbol.toLowerCase().includes(q) || 
-                             inc.pattern.toLowerCase().includes(q);
+                      return inc.id.toLowerCase().includes(q) ||
+                        inc.symbol.toLowerCase().includes(q) ||
+                        inc.pattern.toLowerCase().includes(q);
                     }).length === 0 && (
-                      <div style={{ padding: '10px', textAlign: 'center', color: '#94a3b8', fontSize: '11px' }}>
-                        No incidents found
-                      </div>
-                    )}
+                        <div style={{ padding: '10px', textAlign: 'center', color: '#94a3b8', fontSize: '11px' }}>
+                          No incidents found
+                        </div>
+                      )}
                   </div>
                 )}
               </div>
@@ -5426,9 +6486,9 @@ function App() {
                 </div>
               );
             }
-            
+
             const pat = activeInc.pattern.toUpperCase();
-            
+
             // Build dynamic details based on incident pattern
             let rcaVerdict = `Potential manipulative behavior detected on ${activeInc.symbol}`;
             let metrics = {
@@ -5566,23 +6626,172 @@ function App() {
                     </div>
                   </div>
                 </div>
+
+                {(activeInc.rca || activeInc.report_content) && (
+                  <div style={{
+                    marginTop: '20px',
+                    padding: '20px',
+                    borderRadius: '8px',
+                    background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)',
+                    border: '1px solid rgba(139, 92, 246, 0.2)',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        background: '#7c3aed',
+                        color: 'white'
+                      }}>
+                        <Sparkles size={16} />
+                      </div>
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', color: '#5b21b6', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          Claude AI Compliance Analysis
+                        </h4>
+                        <span style={{ fontSize: '10px', color: '#7c3aed', fontWeight: '600' }}>REAL-TIME FORENSIC RECONSTRUCTION</span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                      {activeInc.rca && (
+                        <div style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                          padding: '16px',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(139, 92, 246, 0.1)',
+                          backdropFilter: 'blur(4px)',
+                          fontFamily: 'Arial, sans-serif'
+                        }}>
+                          <span style={{ fontWeight: 'bold', display: 'block', marginBottom: '10px', color: '#6d28d9', fontSize: '12px', letterSpacing: '0.05em', textTransform: 'uppercase', fontFamily: 'Arial, sans-serif' }}>
+                            Root Cause Analysis (RCA)
+                          </span>
+                          <div style={{
+                            fontSize: '11.5px',
+                            lineHeight: '1.6',
+                            color: '#334155',
+                            fontFamily: 'Arial, sans-serif'
+                          }}>
+                            {activeInc.rca.split('\n').map((line: string, idx: number) => {
+                              const trimmed = line.trim();
+                              if (!trimmed) return <div key={idx} style={{ height: '8px' }} />;
+                              if (trimmed.toLowerCase().startsWith('root cause analysis') && trimmed.endsWith(':')) {
+                                return (
+                                  <h5 key={idx} style={{ fontWeight: 'bold', fontSize: '13px', color: '#0f172a', margin: '0 0 12px 0', borderBottom: '2.5px solid #7c3aed', paddingBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: 'Arial, sans-serif' }}>
+                                    {trimmed.slice(0, -1)}
+                                  </h5>
+                                );
+                              }
+                              const match = trimmed.match(/^(\d+\.\s*[^:]+):(.*)$/);
+                              if (match) {
+                                return (
+                                  <div key={idx} style={{ marginBottom: '10px', fontSize: '11.5px', lineHeight: '1.5', fontFamily: 'Arial, sans-serif' }}>
+                                    <strong style={{ color: '#4c1d95', display: 'block', marginBottom: '2px', fontFamily: 'Arial, sans-serif' }}>{match[1].trim()}:</strong>
+                                    <span style={{ color: '#334155', fontFamily: 'Arial, sans-serif' }}>{match[2].trim()}</span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <p key={idx} style={{ margin: '0 0 8px 0', fontSize: '11.5px', lineHeight: '1.5', color: '#334155', fontFamily: 'Arial, sans-serif' }}>
+                                  {trimmed}
+                                </p>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {activeInc.report_content && (
+                        <div style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                          padding: '16px',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(139, 92, 246, 0.1)',
+                          backdropFilter: 'blur(4px)',
+                          fontFamily: 'Arial, sans-serif'
+                        }}>
+                          <span style={{ fontWeight: 'bold', display: 'block', marginBottom: '10px', color: '#6d28d9', fontSize: '12px', letterSpacing: '0.05em', textTransform: 'uppercase', fontFamily: 'Arial, sans-serif' }}>
+                            Compliance Incident Report
+                          </span>
+                          <div style={{
+                            fontSize: '11.5px',
+                            lineHeight: '1.6',
+                            color: '#334155',
+                            fontFamily: 'Arial, sans-serif'
+                          }}>
+                            {activeInc.report_content.split('\n').map((line: string, idx: number) => {
+                              const trimmed = line.trim();
+                              if (!trimmed) return <div key={idx} style={{ height: '8px' }} />;
+                              if (trimmed.startsWith('---') || trimmed.startsWith('___')) {
+                                return <hr key={idx} style={{ border: 'none', borderTop: '1px solid #cbd5e1', margin: '8px 0' }} />;
+                              }
+                              if (trimmed.toLowerCase().includes('tradeshield compliance') || trimmed.toLowerCase().includes('investigation report')) {
+                                return (
+                                  <h5 key={idx} style={{ fontWeight: 'bold', fontSize: '13px', color: '#0f172a', margin: '0 0 12px 0', borderBottom: '2.5px solid #7c3aed', paddingBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: 'Arial, sans-serif' }}>
+                                    {trimmed}
+                                  </h5>
+                                );
+                              }
+                              if (trimmed.endsWith(':')) {
+                                return (
+                                  <strong key={idx} style={{ display: 'block', marginTop: '12px', marginBottom: '6px', fontSize: '11.5px', color: '#4c1d95', textTransform: 'uppercase', letterSpacing: '0.03em', fontFamily: 'Arial, sans-serif' }}>
+                                    {trimmed}
+                                  </strong>
+                                );
+                              }
+                              if (trimmed.includes('|')) {
+                                const parts = trimmed.split('|');
+                                return (
+                                  <div key={idx} style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', margin: '8px 0', padding: '8px', backgroundColor: '#f1f5f9', borderRadius: '4px', border: '1px solid #cbd5e1', fontFamily: 'Arial, sans-serif' }}>
+                                    {parts.map((part, pIdx) => {
+                                      const kv = part.split(':');
+                                      if (kv.length >= 2) {
+                                        return (
+                                          <div key={pIdx} style={{ fontSize: '11px', color: '#475569', fontFamily: 'Arial, sans-serif' }}>
+                                            <span style={{ fontWeight: '600', color: '#1e293b', fontFamily: 'Arial, sans-serif' }}>{kv[0].trim()}:</span>
+                                            <span style={{ marginLeft: '4px', fontWeight: 'bold', color: '#6d28d9', fontFamily: 'Arial, sans-serif' }}>{kv.slice(1).join(':').trim()}</span>
+                                            {pIdx < parts.length - 1 && <span style={{ marginLeft: '8px', color: '#94a3b8' }}>|</span>}
+                                          </div>
+                                        );
+                                      }
+                                      return <span key={pIdx} style={{ fontSize: '11px', fontWeight: '500', fontFamily: 'Arial, sans-serif' }}>{part.trim()}</span>;
+                                    })}
+                                  </div>
+                                );
+                              }
+                              return (
+                                <p key={idx} style={{ margin: '0 0 8px 0', fontSize: '11.5px', lineHeight: '1.5', color: '#334155', fontFamily: 'Arial, sans-serif' }}>
+                                  {trimmed}
+                                </p>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
         </div>
       ) : currentView === 'simulators' ? (
-        <div className="simulators-container">
+        <div className="simulators-container" style={{ padding: '20px', height: '100%', overflowY: 'auto' }}>
           <h2 style={{ fontSize: '18px', fontWeight: '800' }}>Replay Simulators</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '2px' }}>Configure speed, manage datasets, and load files.</p>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '10px' }}>
             <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '16px' }}>
               <span style={{ fontWeight: 'bold', fontSize: '13px', display: 'block', marginBottom: '10px' }}>Replay Data Source</span>
-              
+
               <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div className="anomaly-control-group">
                   <span className="anomaly-control-label">Select Active Instrument Source</span>
-                  <select 
+                  <select
                     className="anomaly-control-input"
                     value={activeInstrumentId}
                     onChange={e => setActiveInstrumentId(e.target.value)}
@@ -5598,16 +6807,14 @@ function App() {
                 {datasetTimeRange && (() => {
                   const startTimeMs = new Date(datasetTimeRange.start).getTime();
                   const endTimeMs = new Date(datasetTimeRange.end).getTime();
-                  const currentTimeMs = currentPlaybackTime 
-                    ? new Date(currentPlaybackTime).getTime() 
-                    : (lastStreamedTimestampRef.current 
-                        ? new Date(lastStreamedTimestampRef.current).getTime() 
-                        : startTimeMs);
+                  const currentTimeMs = currentPlaybackTime
+                    ? new Date(currentPlaybackTime).getTime()
+                    : (lastStreamedTimestampRef.current
+                      ? new Date(lastStreamedTimestampRef.current).getTime()
+                      : startTimeMs);
                   const validCurrentTimeMs = Math.max(startTimeMs, Math.min(currentTimeMs, endTimeMs));
-                  
-                  // Calculate progress percentage
                   const progressPct = ((validCurrentTimeMs - startTimeMs) / Math.max(1, endTimeMs - startTimeMs)) * 100;
-                  
+
                   return (
                     <div style={{
                       backgroundColor: 'white',
@@ -5620,7 +6827,6 @@ function App() {
                       gap: '12px',
                       boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
                     }}>
-                      {/* Top Header Status */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{
@@ -5636,7 +6842,6 @@ function App() {
                         </div>
                       </div>
 
-                      {/* Large Glowing Time Display */}
                       <div style={{
                         textAlign: 'center',
                         padding: '10px 0',
@@ -5657,10 +6862,9 @@ function App() {
                         </div>
                       </div>
 
-                      {/* Progress Seek Slider */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <div style={{ position: 'relative', width: '100%', display: 'flex', alignItems: 'center' }}>
-                          <input 
+                          <input
                             type="range"
                             min={startTimeMs}
                             max={endTimeMs}
@@ -5676,12 +6880,6 @@ function App() {
                             onTouchEnd={(e) => {
                               const val = parseInt(e.currentTarget.value);
                               handleJumpToTime(new Date(val).toISOString());
-                            }}
-                            onKeyUp={(e) => {
-                              if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-                                const val = parseInt(e.currentTarget.value);
-                                handleJumpToTime(new Date(val).toISOString());
-                              }
                             }}
                             style={{
                               width: '100%',
@@ -5701,7 +6899,6 @@ function App() {
                         </div>
                       </div>
 
-                      {/* Control Buttons Row */}
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                         <button
                           onClick={handleTogglePlayPause}
@@ -5731,11 +6928,11 @@ function App() {
 
                 <div className="anomaly-control-group" style={{ marginTop: '5px' }}>
                   <span className="anomaly-control-label">Upload Custom Dataset File (CSV)</span>
-                  <input 
-                    type="file" 
-                    accept=".csv" 
+                  <input
+                    type="file"
+                    accept=".csv"
                     onChange={handleFileUpload}
-                    style={{ fontSize: '11px', padding: '4px' }} 
+                    style={{ fontSize: '11px', padding: '4px' }}
                   />
                   <p style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '4px' }}>
                     CSV must include headers: timestamp, ltp (or price/close).
@@ -5761,8 +6958,8 @@ function App() {
                 <div>Connection Type: <strong>WebSockets (Stream Engine)</strong></div>
                 <div>Node IP Address: <strong>10.10.50.157</strong></div>
                 <div>Ingress Latency: <strong>&lt;0.82ms</strong></div>
-                <button 
-                  className="add-funds-btn" 
+                <button
+                  className="add-funds-btn"
                   onClick={() => {
                     setCandles([]);
                     setVolumes([]);
@@ -5776,6 +6973,438 @@ function App() {
             </div>
           </div>
         </div>
+
+      ) : currentView === 'exchange' ? (
+        <div className="exchange-dashboard text-slate-800" style={{ padding: '20px', backgroundColor: '#f8fafc', color: '#1e293b', fontFamily: 'Arial, sans-serif', display: 'flex', flexDirection: 'column', gap: '20px', height: '100%', overflowY: 'auto' }}>
+          <style>{`
+            .exchange-dashboard::-webkit-scrollbar { width: 6px; }
+            .exchange-dashboard::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+            .exchange-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); }
+            .exchange-title { color: #6d28d9; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px; }
+            .sub-title { color: #64748b; font-size: 10px; margin-top: -8px; margin-bottom: 12px; display: block; }
+            .exchange-tbl { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
+            .exchange-tbl th { padding: 8px; color: #475569; font-weight: 600; border-bottom: 1px solid #e2e8f0; background-color: #f8fafc; }
+            .exchange-tbl td { padding: 8px; border-bottom: 1px solid #f1f5f9; }
+            .depth-book-side { display: flex; flex-direction: column; gap: 12px; }
+            .badge-action-btn { border: none; padding: 3px 6px; border-radius: 3px; font-size: 9px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+            .badge-action-btn.fill { background-color: #10b981; color: white; }
+            .badge-action-btn.fill:hover { background-color: #059669; }
+            .badge-action-btn.cancel { background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; }
+            .badge-action-btn.cancel:hover { background-color: rgba(239, 68, 68, 0.2); }
+            .badge-side { padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 800; text-align: center; width: fit-content; }
+            .badge-side.buy { background-color: rgba(16, 185, 129, 0.15); color: #10b981; }
+            .badge-side.sell { background-color: rgba(239, 68, 68, 0.15); color: #ef4444; }
+            .glowing-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px currentColor; }
+          `}</style>
+
+          {/* Top Title Bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
+            <div>
+              <h2 style={{ fontSize: '18px', fontWeight: '800', margin: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                Exchange Matching Engine <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', fontWeight: 'normal', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '12px' }}>
+                  <span className="glowing-dot" style={{ color: '#10b981', backgroundColor: '#10b981' }} /> SERVER ACTIVE
+                </span>
+              </h2>
+              <p style={{ color: '#64748b', fontSize: '11px', margin: '4px 0 0 0' }}>Forensic trading matching backend for simulating market anomalies and executing broker orders.</p>
+            </div>
+            
+            {activeScenarioName && (
+              <div style={{
+                background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+                border: '1px solid #f59e0b',
+                borderRadius: '6px',
+                padding: '8px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}>
+                <div>
+                  <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#b45309', display: 'block' }}>STREAM MUTATION ACTIVE</span>
+                  <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#78350f' }}>Scenario: {activeScenarioName}</span>
+                </div>
+                <button
+                  className="badge-action-btn cancel"
+                  onClick={handleClearScenario}
+                  style={{ padding: '4px 8px', fontSize: '10px' }}
+                >
+                  Clear Mutation
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Main Content Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '20px', flex: 1 }}>
+            
+            {/* Left Column: Order Book & Depth */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              <div className="exchange-card">
+                <span className="exchange-title">
+                  <ArrowRightLeft size={14} style={{ color: '#6d28d9' }} /> Separated Order Book (Market Depth)
+                </span>
+                <span className="sub-title">Showing general broker orders vs. internal test account pending placement.</span>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  
+                  {/* General Broker Depth */}
+                  <div className="depth-book-side" style={{ borderRight: '1px solid #e2e8f0', paddingRight: '10px' }}>
+                    <h4 style={{ fontSize: '11px', fontWeight: 'bold', margin: '0 0 8px 0', color: '#475569', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>EXTERNAL MARKET DEPTH</span>
+                      <span style={{ color: '#64748b', fontWeight: 'normal' }}>Broker Feed</span>
+                    </h4>
+
+                    <table className="exchange-tbl">
+                      <thead>
+                        <tr>
+                          <th>Quantity</th>
+                          <th>Bid (Buy)</th>
+                          <th>Ask (Sell)</th>
+                          <th>Quantity</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {exchangeDepth?.market_depth ? (
+                          Array.from({ length: 5 }).map((_, idx) => {
+                            const bid = exchangeDepth.market_depth.bids[idx] || { price: 0, qty: 0 };
+                            const ask = exchangeDepth.market_depth.asks[idx] || { price: 0, qty: 0 };
+                            return (
+                              <tr key={idx}>
+                                <td>{bid.qty > 0 ? bid.qty.toLocaleString() : '-'}</td>
+                                <td style={{ color: '#10b981', fontWeight: 'bold' }}>{bid.price > 0 ? `₹${bid.price.toFixed(2)}` : '-'}</td>
+                                <td style={{ color: '#ef4444', fontWeight: 'bold' }}>{ask.price > 0 ? `₹${ask.price.toFixed(2)}` : '-'}</td>
+                                <td>{ask.qty > 0 ? ask.qty.toLocaleString() : '-'}</td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={4} style={{ textAlign: 'center', color: '#64748b', padding: '20px' }}>
+                              Waiting for live tick feed...
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Our Account Depth */}
+                  <div className="depth-book-side">
+                    <h4 style={{ fontSize: '11px', fontWeight: 'bold', margin: '0 0 8px 0', color: '#6d28d9', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>OUR DESK PENDING (LIMITS)</span>
+                      <span style={{ color: '#7c3aed', fontWeight: 'normal' }}>Desk Feed</span>
+                    </h4>
+
+                    <table className="exchange-tbl">
+                      <thead>
+                        <tr>
+                          <th>Bids (BUY)</th>
+                          <th>Asks (SELL)</th>
+                          <th>Trader details</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {exchangeDepth?.our_orders && (exchangeDepth.our_orders.bids.length > 0 || exchangeDepth.our_orders.asks.length > 0) ? (
+                          <>
+                            {exchangeDepth.our_orders.bids.map((bid, i) => (
+                              <tr key={`our-bid-${i}`}>
+                                <td style={{ color: '#10b981' }}>
+                                  <b>{bid.qty}</b> @ ₹{bid.price.toFixed(2)}
+                                </td>
+                                <td>-</td>
+                                <td style={{ fontSize: '9px', color: '#475569' }}>
+                                  <div style={{ fontWeight: 'bold' }}>{bid.trader_name}</div>
+                                  <div>ID: {bid.trader_id}</div>
+                                  {bid.note && <div style={{ fontStyle: 'italic', color: '#64748b' }}>({bid.note})</div>}
+                                </td>
+                                <td>
+                                  <button className="badge-action-btn cancel" onClick={() => handleCancelOrder(bid.id)}>
+                                    Cancel
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                            {exchangeDepth.our_orders.asks.map((ask, i) => (
+                              <tr key={`our-ask-${i}`}>
+                                <td>-</td>
+                                <td style={{ color: '#ef4444' }}>
+                                  <b>{ask.qty}</b> @ ₹{ask.price.toFixed(2)}
+                                </td>
+                                <td style={{ fontSize: '9px', color: '#475569' }}>
+                                  <div style={{ fontWeight: 'bold' }}>{ask.trader_name}</div>
+                                  <div>ID: {ask.trader_id}</div>
+                                  {ask.note && <div style={{ fontStyle: 'italic', color: '#64748b' }}>({ask.note})</div>}
+                                </td>
+                                <td>
+                                  <button className="badge-action-btn cancel" onClick={() => handleCancelOrder(ask.id)}>
+                                    Cancel
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </>
+                        ) : (
+                          <tr>
+                            <td colSpan={4} style={{ textAlign: 'center', color: '#64748b', padding: '20px' }}>
+                              No internal pending limit orders in book.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Bottom Row: Replay & Data Source Settings */}
+              <div className="exchange-card">
+                <span className="exchange-title">
+                  <Play size={14} style={{ color: '#10b981' }} /> Instrument Replayer Controls
+                </span>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '20px' }}>
+                  
+                  {/* Replay seeker */}
+                  <div>
+                    {datasetTimeRange && (() => {
+                      const startTimeMs = new Date(datasetTimeRange.start).getTime();
+                      const endTimeMs = new Date(datasetTimeRange.end).getTime();
+                      const currentTimeMs = currentPlaybackTime
+                        ? new Date(currentPlaybackTime).getTime()
+                        : (lastStreamedTimestampRef.current
+                          ? new Date(lastStreamedTimestampRef.current).getTime()
+                          : startTimeMs);
+                      const validCurrentTimeMs = Math.max(startTimeMs, Math.min(currentTimeMs, endTimeMs));
+                      const progressPct = ((validCurrentTimeMs - startTimeMs) / Math.max(1, endTimeMs - startTimeMs)) * 100;
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '10px', color: '#475569' }}>
+                              <b>REPLAY POSITION:</b> {formatHumanReadableTime(currentPlaybackTime || lastStreamedTimestampRef.current || datasetTimeRange.start)}
+                            </span>
+                            <span style={{ fontSize: '9px', fontWeight: 'bold', color: isReplaying ? '#10b981' : '#ef4444' }}>
+                              {isReplaying ? '● MUTATED FEED LIVE' : '○ FEED PAUSED'}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min={startTimeMs}
+                            max={endTimeMs}
+                            value={validCurrentTimeMs}
+                            onInput={(e) => {
+                              const val = parseInt(e.currentTarget.value);
+                              setCurrentPlaybackTime(new Date(val).toISOString());
+                            }}
+                            onMouseUp={(e) => {
+                              const val = parseInt(e.currentTarget.value);
+                              handleJumpToTime(new Date(val).toISOString());
+                            }}
+                            onTouchEnd={(e) => {
+                              const val = parseInt(e.currentTarget.value);
+                              handleJumpToTime(new Date(val).toISOString());
+                            }}
+                            style={{
+                              width: '100%',
+                              height: '4px',
+                              borderRadius: '2px',
+                              background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${progressPct}%, #cbd5e1 ${progressPct}%, #cbd5e1 100%)`,
+                              outline: 'none',
+                              cursor: 'pointer',
+                              WebkitAppearance: 'none'
+                            }}
+                          />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#64748b' }}>
+                            <span>Start: {formatHumanReadableTime(datasetTimeRange.start)}</span>
+                            <span>End: {formatHumanReadableTime(datasetTimeRange.end)}</span>
+                          </div>
+                          
+                          <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                            <button
+                              onClick={handleTogglePlayPause}
+                              style={{
+                                flex: 1,
+                                height: '28px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                backgroundColor: isReplaying ? '#64748b' : '#8b5cf6',
+                                color: 'white',
+                                fontSize: '11px',
+                                fontWeight: 'bold',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {isReplaying ? '⏸ PAUSE FEED' : '▶ RESUME REPLAY'}
+                            </button>
+                            
+                            <select
+                              value={activeInstrumentId}
+                              onChange={e => setActiveInstrumentId(e.target.value)}
+                              style={{
+                                background: '#ffffff',
+                                border: '1px solid #cbd5e1',
+                                color: '#1e293b',
+                                borderRadius: '4px',
+                                padding: '0 8px',
+                                fontSize: '11px'
+                              }}
+                            >
+                              {instruments.map(inst => (
+                                <option key={inst.instrument_id} value={inst.instrument_id}>
+                                  {inst.symbol} - {inst.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Speed Controls & Upload */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderLeft: '1px solid #e2e8f0', paddingLeft: '16px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '10px', color: '#475569', fontWeight: 'bold' }}>SPEED MULTIPLIER</span>
+                      <div className="speed-buttons" style={{ display: 'flex', gap: '4px' }}>
+                        {[1, 10, 50, 100].map(s => (
+                          <button
+                            key={s}
+                            className={`speed-btn ${replaySpeed === s ? 'active' : ''}`}
+                            onClick={() => setReplaySpeed(s)}
+                            style={{ flex: 1, height: '22px', fontSize: '9px', padding: 0 }}
+                          >
+                            {s}x
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '4px' }}>
+                      <span style={{ fontSize: '9px', color: '#475569' }}>Upload CSV Tick Log</span>
+                      <input
+                        type="file"
+                        accept=".csv"
+                        onChange={handleFileUpload}
+                        style={{ fontSize: '9px', color: '#64748b' }}
+                      />
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+
+            {/* Right Column: Pending manual orders execution */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              <div className="exchange-card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <span className="exchange-title">
+                  <ShieldAlert size={14} style={{ color: '#f59e0b' }} /> Desk Execution Queue (Manual Match)
+                </span>
+                <span className="sub-title">Pending LIMIT orders requiring matching trigger. Clicking fill simulates matching fill events.</span>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', flex: 1, maxHeight: '480px', paddingRight: '4px' }}>
+                  {pendingOrders.length > 0 ? (
+                    pendingOrders.map(order => (
+                      <div
+                        key={order.id}
+                        style={{
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '6px',
+                          padding: '12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '10px', color: '#6d28d9', fontWeight: '700' }}>
+                            ORDER #{order.id}
+                          </span>
+                          <span className={`badge-side ${order.side.toLowerCase()}`}>
+                            {order.side}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '11px' }}>
+                          <div>
+                            <span style={{ color: '#64748b', display: 'block', fontSize: '9px' }}>INSTRUMENT</span>
+                            <strong style={{ color: '#1e293b' }}>{order.symbol}</strong>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748b', display: 'block', fontSize: '9px' }}>PRICE & QTY</span>
+                            <strong style={{ color: '#1e293b' }}>{order.quantity} @ ₹{order.price.toFixed(2)}</strong>
+                          </div>
+                        </div>
+
+                        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '6px', fontSize: '10px', color: '#475569' }}>
+                          <span style={{ color: '#64748b', fontSize: '9px', display: 'block' }}>TRADER DETAILS</span>
+                          <strong>{order.trader_name}</strong> (ID: {order.trader_id})
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                          <button
+                            className="badge-action-btn fill"
+                            onClick={() => handleFulfillOrder(order)}
+                            style={{ flex: 1, height: '26px' }}
+                          >
+                            ⚡ Execute & Fill
+                          </button>
+                          <button
+                            className="badge-action-btn cancel"
+                            onClick={() => handleCancelOrder(order.id)}
+                            style={{ padding: '0 10px', height: '26px' }}
+                          >
+                            ✕ Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      flex: 1,
+                      color: '#64748b',
+                      padding: '40px 10px',
+                      textAlign: 'center',
+                      border: '1px dashed #cbd5e1',
+                      borderRadius: '6px'
+                    }}>
+                      <Clock size={24} />
+                      <span style={{ fontSize: '11px' }}>No pending limit orders in matching queue.</span>
+                      <span style={{ fontSize: '9px', opacity: 0.8 }}>Place some limit orders in the trade terminal with auto-execute disabled!</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Node Diagnostic Card */}
+              <div className="exchange-card">
+                <span className="exchange-title">
+                  <Cpu size={14} style={{ color: '#2563eb' }} /> Node Health Diagnostics
+                </span>
+                <div style={{ fontSize: '10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', color: '#475569' }}>
+                  <div>Exchange Gateway: <strong style={{ color: '#10b981' }}>ONLINE</strong></div>
+                  <div>Network Node: <strong>10.10.50.157</strong></div>
+                  <div>Ingress Queue: <strong>0 tasks</strong></div>
+                  <div>Surveillance Scanner: <strong style={{ color: '#7c3aed' }}>ARMED</strong></div>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+
       ) : currentView === 'channels' ? (
         <div className="channels-container" style={{ padding: '20px', backgroundColor: '#f8fafc', height: '100%', overflowY: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -5783,12 +7412,12 @@ function App() {
               <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>Alert Notification Channels</h2>
               <p style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>Configure upstream destinations for security and pattern violations.</p>
             </div>
-            
+
             {/* Tiny Search Bar */}
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <input 
-                type="text" 
-                placeholder="Search config fields..." 
+              <input
+                type="text"
+                placeholder="Search config fields..."
                 className="anomaly-control-input"
                 style={{ width: '220px', paddingLeft: '28px', fontSize: '11px', height: '28px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                 value={channelSearch}
@@ -5796,8 +7425,8 @@ function App() {
               />
               <Search size={12} style={{ position: 'absolute', left: '10px', color: '#64748b' }} />
               {channelSearch && (
-                <button 
-                  onClick={() => setChannelSearch("")} 
+                <button
+                  onClick={() => setChannelSearch("")}
                   style={{ position: 'absolute', right: '8px', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '10px' }}
                 >
                   ✕
@@ -5817,9 +7446,9 @@ function App() {
                     <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#1e293b' }}>Telegram Bot Integration</span>
                   </div>
                   <label className="switch" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={telegramConfig.enabled} 
+                    <input
+                      type="checkbox"
+                      checked={telegramConfig.enabled}
                       onChange={e => {
                         const newVal = e.target.checked;
                         setTelegramConfig(prev => ({ ...prev, enabled: newVal }));
@@ -5832,34 +7461,34 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11.5px' }}>
                   <div>
                     <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Bot Token</span>
-                    <input 
-                      type="text" 
-                      className="anomaly-control-input" 
+                    <input
+                      type="text"
+                      className="anomaly-control-input"
                       style={{ fontSize: '11px', height: '26px' }}
-                      value={telegramConfig.botToken} 
+                      value={telegramConfig.botToken}
                       onChange={e => setTelegramConfig(prev => ({ ...prev, botToken: e.target.value }))}
                     />
                   </div>
                   <div>
                     <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Target Chat ID</span>
-                    <input 
-                      type="text" 
-                      className="anomaly-control-input" 
+                    <input
+                      type="text"
+                      className="anomaly-control-input"
                       style={{ fontSize: '11px', height: '26px' }}
-                      value={telegramConfig.chatId} 
+                      value={telegramConfig.chatId}
                       onChange={e => setTelegramConfig(prev => ({ ...prev, chatId: e.target.value }))}
                     />
                   </div>
                   <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                    <button 
-                      className="add-funds-btn" 
+                    <button
+                      className="add-funds-btn"
                       style={{ fontSize: '11px', padding: '4px 10px' }}
                       onClick={() => saveTelegramConfig()}
                     >
                       Save Settings
                     </button>
-                    <button 
-                      className="add-funds-btn" 
+                    <button
+                      className="add-funds-btn"
                       style={{ fontSize: '11px', padding: '4px 10px', backgroundColor: '#64748b' }}
                       onClick={testTelegramConnection}
                     >
@@ -5880,9 +7509,9 @@ function App() {
                     <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#1e293b' }}>SMTP Email Server</span>
                   </div>
                   <label className="switch" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={smtpConfig.enabled} 
+                    <input
+                      type="checkbox"
+                      checked={smtpConfig.enabled}
                       onChange={e => {
                         const newVal = e.target.checked;
                         setSmtpConfig(prev => ({ ...prev, enabled: newVal }));
@@ -5895,21 +7524,21 @@ function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px', fontSize: '11.5px' }}>
                   <div>
                     <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>SMTP Host</span>
-                    <input 
-                      type="text" 
-                      className="anomaly-control-input" 
+                    <input
+                      type="text"
+                      className="anomaly-control-input"
                       style={{ fontSize: '11px', height: '26px' }}
-                      value={smtpConfig.host} 
+                      value={smtpConfig.host}
                       onChange={e => setSmtpConfig(prev => ({ ...prev, host: e.target.value }))}
                     />
                   </div>
                   <div>
                     <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Port</span>
-                    <input 
-                      type="number" 
-                      className="anomaly-control-input" 
+                    <input
+                      type="number"
+                      className="anomaly-control-input"
                       style={{ fontSize: '11px', height: '26px' }}
-                      value={smtpConfig.port} 
+                      value={smtpConfig.port}
                       onChange={e => setSmtpConfig(prev => ({ ...prev, port: parseInt(e.target.value) }))}
                     />
                   </div>
@@ -5917,46 +7546,46 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11.5px', marginTop: '8px' }}>
                   <div>
                     <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>SMTP User</span>
-                    <input 
-                      type="text" 
-                      className="anomaly-control-input" 
+                    <input
+                      type="text"
+                      className="anomaly-control-input"
                       style={{ fontSize: '11px', height: '26px' }}
-                      value={smtpConfig.user} 
+                      value={smtpConfig.user}
                       onChange={e => setSmtpConfig(prev => ({ ...prev, user: e.target.value }))}
                     />
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                     <div>
                       <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Sender</span>
-                      <input 
-                        type="text" 
-                        className="anomaly-control-input" 
+                      <input
+                        type="text"
+                        className="anomaly-control-input"
                         style={{ fontSize: '11px', height: '26px' }}
-                        value={smtpConfig.from} 
+                        value={smtpConfig.from}
                         onChange={e => setSmtpConfig(prev => ({ ...prev, from: e.target.value }))}
                       />
                     </div>
                     <div>
                       <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Recipient</span>
-                      <input 
-                        type="text" 
-                        className="anomaly-control-input" 
+                      <input
+                        type="text"
+                        className="anomaly-control-input"
                         style={{ fontSize: '11px', height: '26px' }}
-                        value={smtpConfig.to} 
+                        value={smtpConfig.to}
                         onChange={e => setSmtpConfig(prev => ({ ...prev, to: e.target.value }))}
                       />
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                    <button 
-                      className="add-funds-btn" 
+                    <button
+                      className="add-funds-btn"
                       style={{ fontSize: '11px', padding: '4px 10px' }}
                       onClick={() => saveSmtpConfig()}
                     >
                       Save Settings
                     </button>
-                    <button 
-                      className="add-funds-btn" 
+                    <button
+                      className="add-funds-btn"
                       style={{ fontSize: '11px', padding: '4px 10px', backgroundColor: '#64748b' }}
                       onClick={testSmtpConnection}
                     >
@@ -5977,9 +7606,9 @@ function App() {
                     <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#1e293b' }}>Jira Ticket Escalation</span>
                   </div>
                   <label className="switch" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={jiraConfig.enabled} 
+                    <input
+                      type="checkbox"
+                      checked={jiraConfig.enabled}
                       onChange={e => {
                         const newVal = e.target.checked;
                         setJiraConfig(prev => ({ ...prev, enabled: newVal }));
@@ -5992,56 +7621,56 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11.5px' }}>
                   <div>
                     <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Jira Endpoint URL</span>
-                    <input 
-                      type="text" 
-                      className="anomaly-control-input" 
+                    <input
+                      type="text"
+                      className="anomaly-control-input"
                       style={{ fontSize: '11px', height: '26px' }}
-                      value={jiraConfig.endpoint} 
+                      value={jiraConfig.endpoint}
                       onChange={e => setJiraConfig(prev => ({ ...prev, endpoint: e.target.value }))}
                     />
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                     <div>
                       <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Project Key</span>
-                      <input 
-                        type="text" 
-                        className="anomaly-control-input" 
+                      <input
+                        type="text"
+                        className="anomaly-control-input"
                         style={{ fontSize: '11px', height: '26px' }}
-                        value={jiraConfig.projectKey} 
+                        value={jiraConfig.projectKey}
                         onChange={e => setJiraConfig(prev => ({ ...prev, projectKey: e.target.value }))}
                       />
                     </div>
                     <div>
                       <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Issue Type</span>
-                      <input 
-                        type="text" 
-                        className="anomaly-control-input" 
+                      <input
+                        type="text"
+                        className="anomaly-control-input"
                         style={{ fontSize: '11px', height: '26px' }}
-                        value={jiraConfig.issueType} 
+                        value={jiraConfig.issueType}
                         onChange={e => setJiraConfig(prev => ({ ...prev, issueType: e.target.value }))}
                       />
                     </div>
                   </div>
                   <div>
                     <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Auth Token</span>
-                    <input 
-                      type="text" 
-                      className="anomaly-control-input" 
+                    <input
+                      type="text"
+                      className="anomaly-control-input"
                       style={{ fontSize: '11px', height: '26px' }}
-                      value={jiraConfig.token} 
+                      value={jiraConfig.token}
                       onChange={e => setJiraConfig(prev => ({ ...prev, token: e.target.value }))}
                     />
                   </div>
                   <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                    <button 
-                      className="add-funds-btn" 
+                    <button
+                      className="add-funds-btn"
                       style={{ fontSize: '11px', padding: '4px 10px' }}
                       onClick={() => saveJiraConfig()}
                     >
                       Save Settings
                     </button>
-                    <button 
-                      className="add-funds-btn" 
+                    <button
+                      className="add-funds-btn"
                       style={{ fontSize: '11px', padding: '4px 10px', backgroundColor: '#64748b' }}
                       onClick={testJiraConnection}
                     >
@@ -6062,9 +7691,9 @@ function App() {
                     <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#1e293b' }}>Microsoft Teams Webhook</span>
                   </div>
                   <label className="switch" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={teamsConfig.enabled} 
+                    <input
+                      type="checkbox"
+                      checked={teamsConfig.enabled}
                       onChange={e => {
                         const newVal = e.target.checked;
                         setTeamsConfig(prev => ({ ...prev, enabled: newVal }));
@@ -6077,34 +7706,34 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11.5px' }}>
                   <div>
                     <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Webhook URL</span>
-                    <input 
-                      type="text" 
-                      className="anomaly-control-input" 
+                    <input
+                      type="text"
+                      className="anomaly-control-input"
                       style={{ fontSize: '11px', height: '26px' }}
-                      value={teamsConfig.webhookUrl} 
+                      value={teamsConfig.webhookUrl}
                       onChange={e => setTeamsConfig(prev => ({ ...prev, webhookUrl: e.target.value }))}
                     />
                   </div>
                   <div>
                     <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginBottom: '3px' }}>Channel Name</span>
-                    <input 
-                      type="text" 
-                      className="anomaly-control-input" 
+                    <input
+                      type="text"
+                      className="anomaly-control-input"
                       style={{ fontSize: '11px', height: '26px' }}
-                      value={teamsConfig.channelName} 
+                      value={teamsConfig.channelName}
                       onChange={e => setTeamsConfig(prev => ({ ...prev, channelName: e.target.value }))}
                     />
                   </div>
                   <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                    <button 
-                      className="add-funds-btn" 
+                    <button
+                      className="add-funds-btn"
                       style={{ fontSize: '11px', padding: '4px 10px' }}
                       onClick={() => saveTeamsConfig()}
                     >
                       Save Settings
                     </button>
-                    <button 
-                      className="add-funds-btn" 
+                    <button
+                      className="add-funds-btn"
                       style={{ fontSize: '11px', padding: '4px 10px', backgroundColor: '#64748b' }}
                       onClick={testTeamsConnection}
                     >
@@ -6123,24 +7752,24 @@ function App() {
               <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>Automated Policy Manager</h2>
               <p style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>Define automated actions and routing protocols triggered by compliance anomalies.</p>
             </div>
-            
+
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <input 
-                type="file" 
-                id="policy-import-input" 
-                accept=".json" 
-                style={{ display: 'none' }} 
-                onChange={handleImportPolicies} 
+              <input
+                type="file"
+                id="policy-import-input"
+                accept=".json"
+                style={{ display: 'none' }}
+                onChange={handleImportPolicies}
               />
-              <button 
-                className="add-funds-btn" 
+              <button
+                className="add-funds-btn"
                 style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#edf2f7', color: '#475569', border: '1px solid #cbd5e1' }}
                 onClick={() => document.getElementById("policy-import-input")?.click()}
               >
                 <Upload size={12} /> Import
               </button>
-              <button 
-                className="add-funds-btn" 
+              <button
+                className="add-funds-btn"
                 style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#edf2f7', color: '#475569', border: '1px solid #cbd5e1' }}
                 onClick={() => exportPolicies(policies)}
               >
@@ -6149,9 +7778,9 @@ function App() {
 
               {/* Search input */}
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <input 
-                  type="text" 
-                  placeholder="Search rules..." 
+                <input
+                  type="text"
+                  placeholder="Search rules..."
                   className="anomaly-control-input"
                   style={{ width: '180px', paddingLeft: '28px', fontSize: '11px', height: '28px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                   value={policySearch}
@@ -6159,8 +7788,8 @@ function App() {
                 />
                 <Search size={12} style={{ position: 'absolute', left: '10px', color: '#64748b' }} />
                 {policySearch && (
-                  <button 
-                    onClick={() => setPolicySearch("")} 
+                  <button
+                    onClick={() => setPolicySearch("")}
                     style={{ position: 'absolute', right: '8px', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '10px' }}
                   >
                     ✕
@@ -6168,8 +7797,8 @@ function App() {
                 )}
               </div>
 
-              <button 
-                className="add-funds-btn" 
+              <button
+                className="add-funds-btn"
                 style={{ padding: '6px 12px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 onClick={() => setShowAddPolicyModal(true)}
               >
@@ -6181,8 +7810,8 @@ function App() {
           {/* Bulk Actions and Select All Bar */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f1f5f9', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '4px', marginBottom: '10px', fontSize: '11.5px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 checked={policies.length > 0 && selectedPolicyIds.length === policies.length}
                 onChange={(e) => {
                   if (e.target.checked) {
@@ -6196,11 +7825,11 @@ function App() {
                 {selectedPolicyIds.length} of {policies.length} selected
               </span>
             </div>
-            
+
             {selectedPolicyIds.length > 0 && (
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button 
-                  className="add-funds-btn" 
+                <button
+                  className="add-funds-btn"
                   style={{ padding: '4px 8px', fontSize: '11px', backgroundColor: '#fed7d7', color: '#9b2c2c', border: '1px solid #feb2b2' }}
                   onClick={() => {
                     if (window.confirm(`Are you sure you want to delete ${selectedPolicyIds.length} policy rules?`)) {
@@ -6209,26 +7838,26 @@ function App() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ ids: selectedPolicyIds })
                       })
-                      .then(res => {
-                        if (!res.ok) throw new Error("API error");
-                        return res.json();
-                      })
-                      .then(() => {
-                        refreshPoliciesList();
-                        triggerToast(`Deleted ${selectedPolicyIds.length} policy rules.`);
-                        setSelectedPolicyIds([]);
-                      })
-                      .catch(err => {
-                        console.error("Failed to bulk delete policies:", err);
-                        triggerToast("Failed to delete policies from database.");
-                      });
+                        .then(res => {
+                          if (!res.ok) throw new Error("API error");
+                          return res.json();
+                        })
+                        .then(() => {
+                          refreshPoliciesList();
+                          triggerToast(`Deleted ${selectedPolicyIds.length} policy rules.`);
+                          setSelectedPolicyIds([]);
+                        })
+                        .catch(err => {
+                          console.error("Failed to bulk delete policies:", err);
+                          triggerToast("Failed to delete policies from database.");
+                        });
                     }
                   }}
                 >
                   <Trash size={11} style={{ marginRight: '3px', display: 'inline' }} /> Delete Selected
                 </button>
-                <button 
-                  className="add-funds-btn" 
+                <button
+                  className="add-funds-btn"
                   style={{ padding: '4px 8px', fontSize: '11px', backgroundColor: '#edf2f7', color: '#475569', border: '1px solid #cbd5e1' }}
                   onClick={() => {
                     const selected = policies.filter(p => selectedPolicyIds.includes(p.id));
@@ -6261,18 +7890,18 @@ function App() {
                   .filter(p => {
                     if (!policySearch) return true;
                     const q = policySearch.toLowerCase();
-                    return p.name.toLowerCase().includes(q) || 
-                           p.pattern.toLowerCase().includes(q) || 
-                           p.action.toLowerCase().includes(q) ||
-                           p.severity.toLowerCase().includes(q);
+                    return p.name.toLowerCase().includes(q) ||
+                      p.pattern.toLowerCase().includes(q) ||
+                      p.action.toLowerCase().includes(q) ||
+                      p.severity.toLowerCase().includes(q);
                   })
                   .map(policy => {
                     const isSelected = selectedPolicyIds.includes(policy.id);
                     return (
                       <tr key={policy.id} style={{ borderBottom: '1px solid #f1f5f9', color: '#334155', backgroundColor: isSelected ? '#f8fafc' : 'transparent' }}>
                         <td style={{ padding: '10px 14px' }}>
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             checked={isSelected}
                             onChange={() => {
                               if (isSelected) {
@@ -6311,9 +7940,9 @@ function App() {
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           <label className="switch" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <input 
-                              type="checkbox" 
-                              checked={policy.enabled} 
+                            <input
+                              type="checkbox"
+                              checked={policy.enabled}
                               onChange={() => {
                                 const updatedPolicy = { ...policy, enabled: !policy.enabled };
                                 fetch(`${BACKEND_URL}/api/v1/detect/policies/${policy.id}`, {
@@ -6321,18 +7950,18 @@ function App() {
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify(updatedPolicy)
                                 })
-                                .then(res => {
-                                  if (!res.ok) throw new Error("API error");
-                                  return res.json();
-                                })
-                                .then(() => {
-                                  refreshPoliciesList();
-                                  triggerToast(`Policy ${policy.id} status updated.`);
-                                })
-                                .catch(err => {
-                                  console.error("Failed to toggle policy status:", err);
-                                  triggerToast("Failed to toggle policy status in database.");
-                                });
+                                  .then(res => {
+                                    if (!res.ok) throw new Error("API error");
+                                    return res.json();
+                                  })
+                                  .then(() => {
+                                    refreshPoliciesList();
+                                    triggerToast(`Policy ${policy.id} status updated.`);
+                                  })
+                                  .catch(err => {
+                                    console.error("Failed to toggle policy status:", err);
+                                    triggerToast("Failed to toggle policy status in database.");
+                                  });
                               }}
                             />
                             <span style={{ fontSize: '10.5px', color: policy.enabled ? '#1a73e8' : '#94a3b8' }}>
@@ -6342,14 +7971,14 @@ function App() {
                         </td>
                         <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            <button 
+                            <button
                               style={{ border: 'none', background: 'none', color: '#475569', cursor: 'pointer', padding: '2px' }}
                               title="Export Rule"
                               onClick={() => exportPolicies([policy])}
                             >
                               <Download size={13} />
                             </button>
-                            <button 
+                            <button
                               style={{ border: 'none', background: 'none', color: '#3182ce', cursor: 'pointer', padding: '2px' }}
                               title="Edit Rule"
                               onClick={() => {
@@ -6359,7 +7988,7 @@ function App() {
                             >
                               <Edit size={13} />
                             </button>
-                            <button 
+                            <button
                               style={{ border: 'none', background: 'none', color: '#e53e3e', cursor: 'pointer', padding: '2px' }}
                               title="Delete Rule"
                               onClick={() => {
@@ -6367,19 +7996,19 @@ function App() {
                                   fetch(`${BACKEND_URL}/api/v1/detect/policies/${policy.id}`, {
                                     method: 'DELETE'
                                   })
-                                  .then(res => {
-                                    if (!res.ok) throw new Error("API error");
-                                    return res.json();
-                                  })
-                                  .then(() => {
-                                    refreshPoliciesList();
-                                    setSelectedPolicyIds(prev => prev.filter(id => id !== policy.id));
-                                    triggerToast(`Policy ${policy.id} deleted successfully.`);
-                                  })
-                                  .catch(err => {
-                                    console.error("Failed to delete policy:", err);
-                                    triggerToast("Failed to delete policy from database.");
-                                  });
+                                    .then(res => {
+                                      if (!res.ok) throw new Error("API error");
+                                      return res.json();
+                                    })
+                                    .then(() => {
+                                      refreshPoliciesList();
+                                      setSelectedPolicyIds(prev => prev.filter(id => id !== policy.id));
+                                      triggerToast(`Policy ${policy.id} deleted successfully.`);
+                                    })
+                                    .catch(err => {
+                                      console.error("Failed to delete policy:", err);
+                                      triggerToast("Failed to delete policy from database.");
+                                    });
                                 }
                               }}
                             >
@@ -6407,8 +8036,9 @@ function App() {
             <div className={`status-tab ${currentView === 'channels' ? 'active' : ''}`} onClick={() => setCurrentView('channels')}>Channels</div>
             <div className={`status-tab ${currentView === 'policies' ? 'active' : ''}`} onClick={() => setCurrentView('policies')}>Policy</div>
             <div className={`status-tab ${currentView === 'simulators' ? 'active' : ''}`} onClick={() => setCurrentView('simulators')}>Simulators</div>
+            <div className={`status-tab ${currentView === 'exchange' ? 'active' : ''}`} onClick={() => setCurrentView('exchange')}>Exchange Server</div>
           </div>
-          
+
           <div className="speed-control">
             <span className="speed-label">REPLAY MULTIPLIER:</span>
             <div className="speed-buttons">
@@ -6427,7 +8057,7 @@ function App() {
               ₹{positions.reduce((sum, p) => sum + p.pnl, 0).toFixed(2)}
             </span>
           </div>
-          
+
           <div style={{ color: '#858994' }}>Connected Node: 10.10.50.157 <span className="nse-badge">NSE_EQ</span></div>
         </div>
       </footer>
@@ -6444,10 +8074,10 @@ function App() {
               <p style={{ color: 'var(--text-muted)' }}>Deposit mock margin capital to place transactions against the replayer.</p>
               <div style={{ marginTop: '14px' }}>
                 <span className="input-label">Amount (INR)</span>
-                <input 
-                  type="text" 
-                  className="modal-input" 
-                  value={addFundsAmount} 
+                <input
+                  type="text"
+                  className="modal-input"
+                  value={addFundsAmount}
                   onChange={e => setAddFundsAmount(e.target.value)}
                 />
               </div>
@@ -6471,21 +8101,21 @@ function App() {
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
                 <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Rule Name</span>
-                <input 
-                  type="text" 
-                  className="modal-input" 
+                <input
+                  type="text"
+                  className="modal-input"
                   style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
                   placeholder="e.g. Rate limit on Layering detection"
-                  value={newPolicyName} 
+                  value={newPolicyName}
                   onChange={e => setNewPolicyName(e.target.value)}
                 />
               </div>
-              
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
                   <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Target Pattern</span>
-                  <select 
-                    className="anomaly-control-input" 
+                  <select
+                    className="anomaly-control-input"
                     style={{ fontSize: '11px', height: '28px' }}
                     value={newPolicyPattern}
                     onChange={e => setNewPolicyPattern(e.target.value)}
@@ -6499,8 +8129,8 @@ function App() {
                 </div>
                 <div>
                   <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Min Severity</span>
-                  <select 
-                    className="anomaly-control-input" 
+                  <select
+                    className="anomaly-control-input"
                     style={{ fontSize: '11px', height: '28px' }}
                     value={newPolicySeverity}
                     onChange={e => setNewPolicySeverity(e.target.value)}
@@ -6515,8 +8145,8 @@ function App() {
 
               <div>
                 <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Mitigation Response</span>
-                <select 
-                  className="anomaly-control-input" 
+                <select
+                  className="anomaly-control-input"
                   style={{ fontSize: '11px', height: '28px' }}
                   value={newPolicyAction}
                   onChange={e => setNewPolicyAction(e.target.value)}
@@ -6535,8 +8165,8 @@ function App() {
                     const isChecked = newPolicyChannels.includes(ch);
                     return (
                       <label key={ch} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', cursor: 'pointer', backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '3px' }}>
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           checked={isChecked}
                           onChange={() => {
                             if (isChecked) {
@@ -6555,9 +8185,9 @@ function App() {
             </div>
             <div className="modal-footer" style={{ padding: '10px 14px' }}>
               <button className="modal-btn secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => setShowAddPolicyModal(false)}>Cancel</button>
-              <button 
-                className="modal-btn primary" 
-                style={{ fontSize: '11px', padding: '4px 10px' }} 
+              <button
+                className="modal-btn primary"
+                style={{ fontSize: '11px', padding: '4px 10px' }}
                 onClick={() => {
                   if (!newPolicyName.trim()) {
                     triggerToast("Rule Name is required.");
@@ -6578,21 +8208,21 @@ function App() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(rule)
                   })
-                  .then(res => {
-                    if (!res.ok) throw new Error("API error");
-                    return res.json();
-                  })
-                  .then(() => {
-                    refreshPoliciesList();
-                    triggerToast(`Created policy rule: ${newId}`);
-                    setShowAddPolicyModal(false);
-                    setNewPolicyName("");
-                    setNewPolicyChannels(["Telegram"]);
-                  })
-                  .catch(err => {
-                    console.error("Failed to create policy:", err);
-                    triggerToast("Failed to create policy in database.");
-                  });
+                    .then(res => {
+                      if (!res.ok) throw new Error("API error");
+                      return res.json();
+                    })
+                    .then(() => {
+                      refreshPoliciesList();
+                      triggerToast(`Created policy rule: ${newId}`);
+                      setShowAddPolicyModal(false);
+                      setNewPolicyName("");
+                      setNewPolicyChannels(["Telegram"]);
+                    })
+                    .catch(err => {
+                      console.error("Failed to create policy:", err);
+                      triggerToast("Failed to create policy in database.");
+                    });
                 }}
               >
                 Create Policy
@@ -6612,18 +8242,18 @@ function App() {
               </span>
               <button className="modal-close-btn" onClick={() => setShowSettingsModal(false)}><X size={16} /></button>
             </div>
-            
+
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px 20px' }}>
-              
+
               {/* Profile section */}
               <div>
                 <h4 style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', margin: '0 0 8px 0', fontWeight: '800' }}>Compliance Profile</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <div>
                     <span className="input-label" style={{ fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '3px' }}>Officer Name</span>
-                    <input 
-                      type="text" 
-                      className="modal-input" 
+                    <input
+                      type="text"
+                      className="modal-input"
                       style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
                       value={profileName}
                       onChange={e => setProfileName(e.target.value)}
@@ -6631,9 +8261,9 @@ function App() {
                   </div>
                   <div>
                     <span className="input-label" style={{ fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '3px' }}>Role / Designation</span>
-                    <input 
-                      type="text" 
-                      className="modal-input" 
+                    <input
+                      type="text"
+                      className="modal-input"
                       style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
                       value={profileRole}
                       onChange={e => setProfileRole(e.target.value)}
@@ -6647,12 +8277,12 @@ function App() {
               {/* LLM section */}
               <div>
                 <h4 style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', margin: '0 0 8px 0', fontWeight: '800' }}>AI Triage Model Settings</h4>
-                
+
                 <span className="input-label" style={{ fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>Select LLM Provider</span>
-                
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
                   {/* Anthropic Card */}
-                  <div 
+                  <div
                     onClick={() => setLlmProvider('Anthropic Claude')}
                     style={{
                       border: llmProvider === 'Anthropic Claude' ? '2px solid #f97316' : '1.5px solid #e2e8f0',
@@ -6679,7 +8309,7 @@ function App() {
                   </div>
 
                   {/* OpenAI Card */}
-                  <div 
+                  <div
                     onClick={() => setLlmProvider('OpenAI GPT')}
                     style={{
                       border: llmProvider === 'OpenAI GPT' ? '2px solid #10b981' : '1.5px solid #e2e8f0',
@@ -6711,15 +8341,15 @@ function App() {
                   <div>
                     <span className="input-label" style={{ fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '3px' }}>Anthropic API Key</span>
                     <div style={{ position: 'relative' }}>
-                      <input 
-                        type={showAnthropicKey ? "text" : "password"} 
-                        className="modal-input" 
+                      <input
+                        type={showAnthropicKey ? "text" : "password"}
+                        className="modal-input"
                         style={{ fontSize: '11.5px', height: '28px', padding: '4px 30px 4px 8px', letterSpacing: showAnthropicKey ? 'normal' : '0.15em' }}
                         placeholder="sk-ant-..."
                         value={anthropicApiKey}
                         onChange={e => setAnthropicApiKey(e.target.value)}
                       />
-                      <button 
+                      <button
                         onClick={() => setShowAnthropicKey(prev => !prev)}
                         style={{
                           position: 'absolute',
@@ -6743,15 +8373,15 @@ function App() {
                   <div>
                     <span className="input-label" style={{ fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '3px' }}>OpenAI API Key</span>
                     <div style={{ position: 'relative' }}>
-                      <input 
-                        type={showOpenaiKey ? "text" : "password"} 
-                        className="modal-input" 
+                      <input
+                        type={showOpenaiKey ? "text" : "password"}
+                        className="modal-input"
                         style={{ fontSize: '11.5px', height: '28px', padding: '4px 30px 4px 8px', letterSpacing: showOpenaiKey ? 'normal' : '0.15em' }}
                         placeholder="sk-..."
                         value={openaiApiKey}
                         onChange={e => setOpenaiApiKey(e.target.value)}
                       />
-                      <button 
+                      <button
                         onClick={() => setShowOpenaiKey(prev => !prev)}
                         style={{
                           position: 'absolute',
@@ -6772,7 +8402,7 @@ function App() {
                     </div>
                   </div>
                 )}
-                
+
                 <p style={{ fontSize: '9.5px', color: '#94a3b8', marginTop: '6px', lineHeight: '1.3' }}>
                   Your API key is stored locally in your browser's localStorage and is only used to connect to the triage endpoints.
                 </p>
@@ -6781,16 +8411,16 @@ function App() {
             </div>
 
             <div className="modal-footer" style={{ padding: '10px 14px' }}>
-              <button 
-                className="modal-btn secondary" 
-                style={{ fontSize: '11px', padding: '4px 10px' }} 
+              <button
+                className="modal-btn secondary"
+                style={{ fontSize: '11px', padding: '4px 10px' }}
                 onClick={() => setShowSettingsModal(false)}
               >
                 Cancel
               </button>
-              <button 
-                className="modal-btn primary" 
-                style={{ fontSize: '11px', padding: '4px 10px' }} 
+              <button
+                className="modal-btn primary"
+                style={{ fontSize: '11px', padding: '4px 10px' }}
                 onClick={() => {
                   localStorage.setItem("tradeSurveillance_profileName", profileName);
                   localStorage.setItem("tradeSurveillance_profileRole", profileRole);
@@ -6815,11 +8445,11 @@ function App() {
             <div className="modal-header">
               <span className="modal-title">
                 {crudModalMode === 'list' ? 'Trader Profiles Directory' :
-                 crudModalMode === 'add' ? 'Create Trader Profile' : 'Edit Trader Profile'}
+                  crudModalMode === 'add' ? 'Create Trader Profile' : 'Edit Trader Profile'}
               </span>
               <button className="modal-close-btn" onClick={() => setShowTraderCRUDModal(false)}><X size={16} /></button>
             </div>
-            
+
             <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {crudModalMode === 'list' && (
                 <>
@@ -6840,7 +8470,7 @@ function App() {
                       <Plus size={11} style={{ marginRight: '2px', display: 'inline' }} /> Add Trader
                     </button>
                   </div>
-                  
+
                   <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', textAlign: 'left' }}>
                       <thead>
@@ -6914,7 +8544,7 @@ function App() {
                   </div>
                 </>
               )}
-              
+
               {(crudModalMode === 'add' || crudModalMode === 'edit') && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {editingTrader && (
@@ -6982,7 +8612,7 @@ function App() {
                 </div>
               )}
             </div>
-            
+
             <div className="modal-footer" style={{ padding: '10px 14px' }}>
               {crudModalMode === 'list' ? (
                 <button className="modal-btn secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => setShowTraderCRUDModal(false)}>Close</button>
@@ -7003,45 +8633,45 @@ function App() {
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ trader_id: newTraderId, name: newTraderName, role: newTraderRole, sector: newTraderSector, status: newTraderStatus })
                         })
-                        .then(res => {
-                          if (!res.ok) return res.json().then(d => { throw new Error(d.detail || "API error"); });
-                          return res.json();
-                        })
-                        .then(() => {
-                          triggerToast("Trader profile created.");
-                          refreshTradersList();
-                          setCrudModalMode('list');
-                        })
-                        .catch(() => {
-                          const exists = tradersList.some(x => x.trader_id === newTraderId);
-                          if (exists) {
-                            triggerToast("Trader ID already exists locally.");
-                            return;
-                          }
-                          setTradersList(prev => [...prev, { trader_id: newTraderId, name: newTraderName, role: newTraderRole, sector: newTraderSector, status: newTraderStatus }]);
-                          triggerToast("Trader profile created locally.");
-                          setCrudModalMode('list');
-                        });
+                          .then(res => {
+                            if (!res.ok) return res.json().then(d => { throw new Error(d.detail || "API error"); });
+                            return res.json();
+                          })
+                          .then(() => {
+                            triggerToast("Trader profile created.");
+                            refreshTradersList();
+                            setCrudModalMode('list');
+                          })
+                          .catch(() => {
+                            const exists = tradersList.some(x => x.trader_id === newTraderId);
+                            if (exists) {
+                              triggerToast("Trader ID already exists locally.");
+                              return;
+                            }
+                            setTradersList(prev => [...prev, { trader_id: newTraderId, name: newTraderName, role: newTraderRole, sector: newTraderSector, status: newTraderStatus }]);
+                            triggerToast("Trader profile created locally.");
+                            setCrudModalMode('list');
+                          });
                       } else {
                         fetch(`${BACKEND_URL}/api/v1/detect/traders/${newTraderId}`, {
                           method: 'PUT',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ name: newTraderName, role: newTraderRole, sector: newTraderSector, status: newTraderStatus })
                         })
-                        .then(res => {
-                          if (!res.ok) return res.json().then(d => { throw new Error(d.detail || "API error"); });
-                          return res.json();
-                        })
-                        .then(() => {
-                          triggerToast("Trader profile updated.");
-                          refreshTradersList();
-                          setCrudModalMode('list');
-                        })
-                        .catch(() => {
-                          setTradersList(prev => prev.map(x => x.trader_id === newTraderId ? { ...x, name: newTraderName, role: newTraderRole, sector: newTraderSector, status: newTraderStatus } : x));
-                          triggerToast("Trader profile updated locally.");
-                          setCrudModalMode('list');
-                        });
+                          .then(res => {
+                            if (!res.ok) return res.json().then(d => { throw new Error(d.detail || "API error"); });
+                            return res.json();
+                          })
+                          .then(() => {
+                            triggerToast("Trader profile updated.");
+                            refreshTradersList();
+                            setCrudModalMode('list');
+                          })
+                          .catch(() => {
+                            setTradersList(prev => prev.map(x => x.trader_id === newTraderId ? { ...x, name: newTraderName, role: newTraderRole, sector: newTraderSector, status: newTraderStatus } : x));
+                            triggerToast("Trader profile updated locally.");
+                            setCrudModalMode('list');
+                          });
                       }
                     }}
                   >
@@ -7065,20 +8695,20 @@ function App() {
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
                 <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Rule Name</span>
-                <input 
-                  type="text" 
-                  className="modal-input" 
+                <input
+                  type="text"
+                  className="modal-input"
                   style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
-                  value={editingPolicy.name} 
+                  value={editingPolicy.name}
                   onChange={e => setEditingPolicy((prev: any) => ({ ...prev, name: e.target.value }))}
                 />
               </div>
-              
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
                   <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Target Pattern</span>
-                  <select 
-                    className="anomaly-control-input" 
+                  <select
+                    className="anomaly-control-input"
                     style={{ fontSize: '11px', height: '28px' }}
                     value={editingPolicy.pattern}
                     onChange={e => setEditingPolicy((prev: any) => ({ ...prev, pattern: e.target.value }))}
@@ -7092,8 +8722,8 @@ function App() {
                 </div>
                 <div>
                   <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Min Severity</span>
-                  <select 
-                    className="anomaly-control-input" 
+                  <select
+                    className="anomaly-control-input"
                     style={{ fontSize: '11px', height: '28px' }}
                     value={editingPolicy.severity}
                     onChange={e => setEditingPolicy((prev: any) => ({ ...prev, severity: e.target.value }))}
@@ -7108,8 +8738,8 @@ function App() {
 
               <div>
                 <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Mitigation Response</span>
-                <select 
-                  className="anomaly-control-input" 
+                <select
+                  className="anomaly-control-input"
                   style={{ fontSize: '11px', height: '28px' }}
                   value={editingPolicy.action}
                   onChange={e => setEditingPolicy((prev: any) => ({ ...prev, action: e.target.value }))}
@@ -7128,8 +8758,8 @@ function App() {
                     const isChecked = editingPolicy.channels.includes(ch);
                     return (
                       <label key={ch} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', cursor: 'pointer', backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '3px' }}>
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           checked={isChecked}
                           onChange={() => {
                             if (isChecked) {
@@ -7154,9 +8784,9 @@ function App() {
             </div>
             <div className="modal-footer" style={{ padding: '10px 14px' }}>
               <button className="modal-btn secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => setShowEditPolicyModal(false)}>Cancel</button>
-              <button 
-                className="modal-btn primary" 
-                style={{ fontSize: '11px', padding: '4px 10px' }} 
+              <button
+                className="modal-btn primary"
+                style={{ fontSize: '11px', padding: '4px 10px' }}
                 onClick={() => {
                   if (!editingPolicy.name.trim()) {
                     triggerToast("Rule Name is required.");
@@ -7167,23 +8797,106 @@ function App() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(editingPolicy)
                   })
-                  .then(res => {
-                    if (!res.ok) throw new Error("API error");
-                    return res.json();
-                  })
-                  .then(() => {
-                    refreshPoliciesList();
-                    triggerToast(`Updated policy rule: ${editingPolicy.id}`);
-                    setShowEditPolicyModal(false);
-                    setEditingPolicy(null);
-                  })
-                  .catch(err => {
-                    console.error("Failed to update policy:", err);
-                    triggerToast("Failed to update policy in database.");
-                  });
+                    .then(res => {
+                      if (!res.ok) throw new Error("API error");
+                      return res.json();
+                    })
+                    .then(() => {
+                      refreshPoliciesList();
+                      triggerToast(`Updated policy rule: ${editingPolicy.id}`);
+                      setShowEditPolicyModal(false);
+                      setEditingPolicy(null);
+                    })
+                    .catch(err => {
+                      console.error("Failed to update policy:", err);
+                      triggerToast("Failed to update policy in database.");
+                    });
                 }}
               >
                 Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Delete Permanently Confirmation Modal Dialog */}
+      {showDeleteConfirm && (
+        <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ width: '400px', borderRadius: '8px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid var(--border)' }}>
+              <span className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#dc2626', fontWeight: 'bold' }}>
+                <ShieldAlert size={16} /> Permanent Deletion Warning
+              </span>
+              <button className="modal-close-btn" onClick={() => setShowDeleteConfirm(false)}><X size={16} /></button>
+            </div>
+
+            <div className="modal-body" style={{ padding: '20px', fontSize: '13px', color: 'var(--text-main)' }}>
+              <p style={{ marginBottom: '12px' }}>
+                You are about to <strong>permanently delete</strong> the following incident(s) from the compliance ledger:
+              </p>
+              <div style={{
+                maxHeight: '120px',
+                overflowY: 'auto',
+                backgroundColor: '#f8fafc',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                padding: '8px 12px',
+                fontFamily: 'monospace',
+                fontSize: '11px',
+                marginBottom: '15px'
+              }}>
+                {selectedIncidentIds.map(id => <div key={id}>- {id}</div>)}
+              </div>
+              <p style={{ color: '#dc2626', fontWeight: 'bold', fontSize: '11px' }}>
+                This action is irreversible and will purge these records from the session memory.
+              </p>
+            </div>
+
+            <div className="modal-footer" style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'end', gap: '10px' }}>
+              <button
+                className="modal-btn secondary"
+                style={{ fontSize: '11px', padding: '6px 12px' }}
+                onClick={() => setShowDeleteConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-btn"
+                style={{ fontSize: '11px', padding: '6px 12px', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}
+                onClick={async () => {
+                  try {
+                    const response = await fetch(`${BACKEND_URL}/api/v1/detect/incidents/bulk-delete`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json'
+                      },
+                      body: JSON.stringify({ ids: selectedIncidentIds })
+                    });
+                    if (response.ok) {
+                      setIncidents(prev => {
+                        const remaining = prev.filter(inc => !selectedIncidentIds.includes(inc.id));
+                        if (selectedIncident && selectedIncidentIds.includes(selectedIncident.id)) {
+                          setSelectedIncident(remaining.length > 0 ? remaining[0] : null);
+                        }
+                        return remaining;
+                      });
+                      addEventLog(`Permanently deleted ${selectedIncidentIds.length} incident(s) from surveillance database.`, "SYSTEM");
+                      triggerToast("Selected incident(s) permanently deleted.");
+                    } else {
+                      const errData = await response.json();
+                      triggerToast(`Failed to delete incidents: ${errData.detail || 'Unknown error'}`);
+                    }
+                  } catch (err) {
+                    console.error("Error deleting incidents:", err);
+                    triggerToast("Error connecting to backend to delete incidents.");
+                  } finally {
+                    setSelectedIncidentIds([]);
+                    setShowDeleteConfirm(false);
+                  }
+                }}
+              >
+                Permanently Delete
               </button>
             </div>
           </div>
@@ -7250,9 +8963,9 @@ function App() {
             </div>
             {/* Modal Body */}
             <div style={{ flex: 1, padding: '24px', backgroundColor: '#fdfdfd', overflow: 'hidden' }}>
-              <IncidentGraph 
-                incident={selectedIncident} 
-                isFullscreen={true} 
+              <IncidentGraph
+                incident={selectedIncident}
+                isFullscreen={true}
                 onClose={() => setIsFullscreenGraph(false)}
                 onUpdateIncident={handleUpdateIncidentStatus}
                 triggerToast={triggerToast}
