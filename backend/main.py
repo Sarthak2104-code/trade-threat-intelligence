@@ -267,13 +267,15 @@ async def websocket_market_data(websocket: WebSocket):
 
 
 # API Routers
-from api.v1.endpoints import trades, detection, triage, orders, channels
+from api.v1.endpoints import trades, detection, triage, orders, channels, workflows, copilot
 
 app.include_router(trades.router, prefix="/api/v1/trades", tags=["Trades"])
 app.include_router(detection.router, prefix="/api/v1/detect", tags=["Detection"])
 app.include_router(triage.router, prefix="/api/v1/triage", tags=["Triage"])
 app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["Channels"])
+app.include_router(workflows.router, prefix="/api/v1/workflows", tags=["Workflows"])
+app.include_router(copilot.router, prefix="/api/v1/copilot", tags=["Copilot"])
 
 
 if __name__ == "__main__":
