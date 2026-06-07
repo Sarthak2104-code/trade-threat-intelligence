@@ -255,11 +255,12 @@ async def websocket_market_data(websocket: WebSocket):
 
 
 # API Routers
-from api.v1.endpoints import trades, detection, triage
+from api.v1.endpoints import trades, detection, triage, workflows
 
 app.include_router(trades.router, prefix="/api/v1/trades", tags=["Trades"])
 app.include_router(detection.router, prefix="/api/v1/detect", tags=["Detection"])
 app.include_router(triage.router, prefix="/api/v1/triage", tags=["Triage"])
+app.include_router(workflows.router, prefix="/api/v1/workflows", tags=["Workflows"])
 
 # Additional routers to be implemented
 # app.include_router(graph.router, prefix="/api/v1/graph", tags=["Graph"])
