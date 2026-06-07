@@ -40,7 +40,37 @@ def init_db():
         description TEXT
     )
     """)
-    
+
+    # Create orders table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id TEXT UNIQUE,
+        timestamp TEXT,
+        instrument TEXT,
+        side TEXT,
+        quantity INTEGER,
+        price REAL,
+        order_type TEXT,
+        status TEXT,
+        pnl REAL DEFAULT 0
+    )
+    """)
+
+    # Create positions table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS positions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        instrument TEXT UNIQUE,
+        side TEXT,
+        quantity INTEGER,
+        avg_price REAL,
+        current_price REAL,
+        pnl REAL DEFAULT 0,
+        margin_used REAL DEFAULT 0
+    )
+    """)
+
     # Seed traders if empty
     cursor.execute("SELECT COUNT(*) FROM traders")
     if cursor.fetchone()[0] == 0:
