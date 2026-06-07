@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { createChart, ColorType, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts';
 import type { ISeriesApi, CandlestickData, HistogramData } from 'lightweight-charts';
 import cytoscape from 'cytoscape';
 import { 
@@ -16,7 +16,14 @@ import {
   ArrowRightLeft,
   RefreshCw,
   Maximize2,
-  Settings
+  Settings,
+  Download,
+  Upload,
+  Edit,
+  Trash,
+  Check,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import './App.css';
 
@@ -289,15 +296,38 @@ const STATIC_WATCHLIST_DATA = [
 const BACKEND_URL = `http://${window.location.hostname}:8000`;
 const WS_URL = `ws://${window.location.hostname}:8000/ws/market-data`;
 
+const formatHumanReadableTime = (isoString?: string | null) => {
+  if (!isoString) return "No data";
+  try {
+    const cleanTs = isoString.includes('Z') || isoString.includes('+')
+      ? isoString
+      : (isoString.includes(' ') ? isoString.replace(' ', 'T') + 'Z' : isoString + 'Z');
+    const date = new Date(cleanTs);
+    if (isNaN(date.getTime())) return isoString;
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Kolkata'
+    }) + " IST";
+  } catch (e) {
+    return isoString;
+  }
+};
+
 // Shared helper to generate and trigger printing of high-fidelity incident reports
 const printIncidentReport = (incident: Incident) => {
   const getTraderInfo = (symbol: string) => {
     if (symbol === 'TATAELXSI') {
-      return { id: 'TRD-004', name: 'Rohan Mehta', role: 'Prop Trader' };
+      return { id: 'TRD-004', name: 'Rohan Mehta', role: 'Prop Trader', location: 'Mumbai HQ, Desk 4', ip: '10.10.50.44', status: 'SUSPENDED' };
     } else if (symbol === 'LT') {
-      return { id: 'TRD-002', name: 'Alice Vance', role: 'Market Maker' };
+      return { id: 'TRD-002', name: 'Alice Vance', role: 'Market Maker', location: 'London Branch, Desk 12', ip: '10.10.50.82', status: 'UNDER REVIEW' };
     }
-    return { id: 'TRD-001', name: 'System Algo', role: 'Automated Agent' };
+    return { id: 'TRD-001', name: 'System Algo', role: 'Automated Agent', location: 'Colocation Rack 4', ip: '10.10.50.111', status: 'ACTIVE' };
   };
   const trader = getTraderInfo(incident.symbol);
   
@@ -316,252 +346,602 @@ const printIncidentReport = (incident: Incident) => {
     doc.write(`
       <html>
         <head>
-          <title>Compliance Audit Report - ${incident.id}</title>
+          <title>TradeGuard Compliance Audit Report - ${incident.id}</title>
           <style>
+            @page {
+              size: A4;
+              margin: 0;
+            }
             body {
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-              color: #1f1f24;
-              line-height: 1.5;
-              padding: 40px;
-              margin: 0;
-            }
-            .header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              border-bottom: 2px solid #3f2185;
-              padding-bottom: 20px;
-              margin-bottom: 30px;
-            }
-            .logo-area {
-              display: flex;
-              align-items: center;
-              gap: 12px;
-            }
-            .logo-img {
-              height: 35px;
-              width: auto;
-              object-fit: contain;
-            }
-            .logo-text {
-              font-size: 20px;
-              font-weight: 800;
-              color: #3f2185;
-            }
-            .report-title {
-              text-align: right;
-            }
-            .report-title h1 {
-              margin: 0;
-              font-size: 22px;
               color: #1e1b4b;
+              line-height: 1.5;
+              padding: 0;
+              margin: 0;
+              background-color: #ffffff;
+            }
+            
+            /* Page container structure */
+            .page {
+              width: 210mm;
+              height: 296mm;
+              box-sizing: border-box;
+              padding: 25mm 20mm;
+              position: relative;
+              page-break-after: always;
+              break-after: page;
+              overflow: hidden;
+            }
+            .page:last-child {
+              page-break-after: avoid;
+              break-after: avoid;
+            }
+            
+            /* Cover Page styles */
+            .cover-page {
+              background-color: #0f0d2d;
+              color: #ffffff;
+              padding: 0;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+              height: 297mm;
+            }
+            .cover-bg-container {
+              position: absolute;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: 100%;
+              z-index: 1;
+            }
+            .cover-bg {
+              width: 100%;
+              height: 100%;
+              object-fit: cover;
+              opacity: 0.25;
+            }
+            .cover-overlay {
+              position: absolute;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: 100%;
+              background: linear-gradient(180deg, rgba(15, 13, 45, 0.95) 0%, rgba(30, 20, 80, 0.98) 100%);
+              z-index: 2;
+            }
+            .cover-content {
+              position: relative;
+              z-index: 3;
+              height: 100%;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+              box-sizing: border-box;
+              padding: 35mm 25mm;
+            }
+            .cover-header {
+              border-bottom: 2px solid #8b5cf6;
+              padding-bottom: 20px;
+            }
+            .cover-brand {
+              font-size: 32px;
+              font-weight: 900;
+              letter-spacing: 2px;
+              color: #ffffff;
+              text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+              margin: 0;
+            }
+            .cover-brand span {
+              color: #c084fc;
+            }
+            .cover-division {
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 3px;
+              color: #cbd5e1;
+              margin-top: 4px;
+              font-weight: 600;
+            }
+            .cover-body {
+              margin-top: 60px;
+              flex-grow: 1;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+            }
+            .cover-title {
+              font-size: 38px;
               font-weight: 800;
+              line-height: 1.2;
+              color: #ffffff;
+              margin: 0 0 15px 0;
             }
-            .report-title p {
-              margin: 4px 0 0 0;
-              font-size: 12px;
-              color: #72727a;
+            .cover-subtitle {
+              font-size: 15px;
+              color: #a78bfa;
+              margin: 0;
+              font-weight: 500;
+              text-transform: uppercase;
+              letter-spacing: 1.5px;
             }
-            .meta-grid {
-              display: grid;
-              grid-template-columns: repeat(2, 1fr);
-              gap: 16px;
-              background-color: #f4f4f7;
-              border: 1px solid #e6e5eb;
+            .cover-meta-box {
+              background: rgba(255, 255, 255, 0.04);
+              border: 1px solid rgba(139, 92, 246, 0.3);
               border-radius: 8px;
-              padding: 20px;
-              margin-bottom: 30px;
+              padding: 24px;
+              margin-top: 40px;
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 16px;
             }
-            .meta-item {
+            .cover-meta-item {
               display: flex;
               flex-direction: column;
               gap: 4px;
             }
-            .meta-label {
-              font-size: 10px;
+            .cover-meta-label {
+              font-size: 9px;
               text-transform: uppercase;
-              color: #72727a;
+              color: #c084fc;
+              letter-spacing: 1px;
               font-weight: 700;
-              letter-spacing: 0.5px;
             }
-            .meta-value {
+            .cover-meta-val {
               font-size: 13px;
               font-weight: 600;
-              color: #1f1f24;
+              color: #ffffff;
             }
-            .severity-badge {
-              display: inline-block;
-              padding: 3px 8px;
-              border-radius: 4px;
-              font-size: 11px;
-              font-weight: 700;
-              text-transform: uppercase;
+            .cover-footer {
+              font-size: 10px;
+              color: #94a3b8;
+              border-top: 1px solid rgba(255, 255, 255, 0.1);
+              padding-top: 20px;
+              display: flex;
+              justify-content: space-between;
             }
-            .severity-badge.CRITICAL {
-              background-color: #fef2f2;
-              color: #ef5350;
-              border: 1px solid rgba(239, 83, 80, 0.2);
+            
+            /* Page Header & Footer */
+            .page-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 2px solid #3f2185;
+              padding-bottom: 12px;
+              margin-bottom: 25px;
             }
-            .severity-badge.HIGH {
-              background-color: #fff7ed;
-              color: #ea580c;
-              border: 1px solid rgba(234, 88, 12, 0.2);
-            }
-            .severity-badge.MEDIUM {
-              background-color: #fef3c7;
-              color: #d97706;
-              border: 1px solid rgba(217, 119, 6, 0.2);
-            }
-            .severity-badge.LOW {
-              background-color: #f0fdf4;
-              color: #16a34a;
-              border: 1px solid rgba(22, 163, 74, 0.2);
-            }
-            .section-title {
-              font-size: 14px;
-              font-weight: 700;
+            .page-header-logo {
+              font-size: 18px;
+              font-weight: 800;
               color: #3f2185;
-              border-bottom: 1px solid #e6e5eb;
-              padding-bottom: 6px;
-              margin-top: 30px;
-              margin-bottom: 12px;
-              text-transform: uppercase;
               letter-spacing: 0.5px;
             }
-            .evidence-box {
-              background-color: #fafafa;
-              border-left: 4px solid #3f2185;
-              padding: 15px;
-              border-radius: 0 8px 8px 0;
-              font-family: inherit;
-              white-space: pre-wrap;
+            .page-header-logo span {
+              color: #8b5cf6;
+            }
+            .page-header-title {
+              font-size: 10px;
+              text-transform: uppercase;
+              color: #64748b;
+              font-weight: 700;
+              letter-spacing: 1px;
+            }
+            .page-footer {
+              position: absolute;
+              bottom: 20mm;
+              left: 20mm;
+              right: 20mm;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 10px;
+              display: flex;
+              justify-content: space-between;
+              font-size: 9px;
+              color: #64748b;
+            }
+            
+            /* General Typography */
+            h2.section-header {
+              font-size: 14px;
+              font-weight: 800;
+              color: #1e1b4b;
+              margin-top: 0;
+              margin-bottom: 15px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              border-left: 4px solid #8b5cf6;
+              padding-left: 10px;
+            }
+            p.narrative {
               font-size: 12.5px;
-              color: #333;
-              margin-bottom: 30px;
+              color: #334155;
+              line-height: 1.6;
+              margin-bottom: 20px;
             }
-            .footer {
-              margin-top: 60px;
-              border-top: 1px solid #e6e5eb;
-              padding-top: 15px;
-              text-align: center;
+            
+            /* Data Grid */
+            .grid-2 {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 20px;
+              margin-bottom: 25px;
+            }
+            .card-panel {
+              background: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 6px;
+              padding: 16px;
+              position: relative;
+              z-index: 5;
+            }
+            .card-panel-title {
               font-size: 11px;
-              color: #72727a;
+              font-weight: 800;
+              text-transform: uppercase;
+              color: #64748b;
+              margin-bottom: 12px;
+              letter-spacing: 0.5px;
+              border-bottom: 1px solid #e2e8f0;
+              padding-bottom: 4px;
             }
+            
+            /* Details Table */
+            table.dense-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+              font-size: 11px;
+              position: relative;
+              z-index: 5;
+            }
+            table.dense-table th {
+              background-color: #f1f5f9;
+              border-bottom: 2px solid #cbd5e1;
+              color: #334155;
+              font-weight: 700;
+              text-align: left;
+              padding: 8px 10px;
+            }
+            table.dense-table td {
+              border-bottom: 1px solid #e2e8f0;
+              padding: 8px 10px;
+              color: #334155;
+            }
+            table.dense-table tr:nth-child(even) {
+              background-color: #f8fafc;
+            }
+            
+            /* Badges */
+            .badge {
+              display: inline-block;
+              padding: 2px 6px;
+              border-radius: 4px;
+              font-size: 9px;
+              font-weight: 800;
+              text-transform: uppercase;
+            }
+            .badge.critical { background: #fef2f2; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
+            .badge.high { background: #fff7ed; color: #f97316; border: 1px solid rgba(249, 115, 22, 0.2); }
+            .badge.medium { background: #fef3c7; color: #d97706; border: 1px solid rgba(217, 119, 6, 0.2); }
+            .badge.low { background: #f0fdf4; color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.2); }
+            .badge.passed { background: #ecfdf5; color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
+            .badge.flagged { background: #fff1f2; color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.2); }
+            
+            /* ASCII Graph Diagram style */
+            .ascii-graph-box {
+              background-color: #0f172a;
+              border-radius: 6px;
+              padding: 16px;
+              font-family: monospace;
+              font-size: 11px;
+              color: #38bdf8;
+              line-height: 1.4;
+              white-space: pre;
+              overflow-x: auto;
+              margin-bottom: 20px;
+              border-left: 4px solid #38bdf8;
+              position: relative;
+              z-index: 5;
+            }
+            
+            /* Faint Anti-Forgery Watermark */
+            .watermark {
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%) rotate(-30deg);
+              font-size: 55px;
+              font-weight: 900;
+              color: rgba(139, 92, 246, 0.04);
+              text-transform: uppercase;
+              white-space: nowrap;
+              pointer-events: none;
+              z-index: 9999;
+              letter-spacing: 6px;
+            }
+
+            /* Print Specific Overrides */
             @media print {
               body {
-                padding: 20px;
+                background: #ffffff;
+                -webkit-print-color-adjust: exact;
               }
-              .no-print {
-                display: none;
+              .page {
+                border: none;
+                box-shadow: none;
+                margin: 0;
+                padding: 20mm 15mm;
               }
             }
           </style>
         </head>
         <body>
-          <div class="header">
-            <div class="logo-area">
-              <img class="logo-img" src="${window.location.origin}/brandlogo.png" alt="TradeShield" />
-              <span class="logo-text">TradeShield</span>
+          <!-- PAGE 1: COVER PAGE -->
+          <div class="page cover-page">
+            <div class="cover-bg-container">
+              <img src="https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80" class="cover-bg" />
+              <div class="cover-overlay"></div>
             </div>
-            <div class="report-title">
-              <h1>Forensic Audit Report</h1>
-              <p>Generated: ${new Date().toLocaleString()}</p>
-            </div>
-          </div>
-
-          <div class="meta-grid">
-            <div class="meta-item">
-              <span class="meta-label">Incident Reference</span>
-              <span class="meta-value">${incident.id}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Asset Ticker</span>
-              <span class="meta-value">${incident.symbol} (NSE India)</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Threat Pattern</span>
-              <span class="meta-value">${incident.pattern}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">AI Confidence Score</span>
-              <span class="meta-value">${(incident.confidence * 100).toFixed(1)}%</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Timestamp</span>
-              <span class="meta-value">${incident.timestamp}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Current Case Status</span>
-              <span class="meta-value" style="color: ${incident.status === 'PENDING' ? '#ff9800' : incident.status === 'ESCALATED' ? '#e53935' : '#1a73e8'}">${incident.status}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Severity Level</span>
-              <div>
-                <span class="severity-badge ${incident.severity}">${incident.severity}</span>
+            <div class="cover-content">
+              <div class="cover-header">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
+                  <img src="${window.location.origin}/brandlogo.png" style="height: 38px; width: auto; object-fit: contain;" />
+                  <div class="cover-brand">Trade<span>Guard</span></div>
+                </div>
+                <div class="cover-division">MARKET SURVEILLANCE & FORENSIC AUDIT</div>
+              </div>
+              
+              <div class="cover-body">
+                <div class="cover-title">Forensic Audit & Algorithmic Reconstruction Report</div>
+                <div class="cover-subtitle">COMPLIANCE VIOLATION REFERENCE & DEEP-DIVE ANALYSIS</div>
+                
+                <div class="cover-meta-box">
+                  <div class="cover-meta-item">
+                    <span class="cover-meta-label">Audit ID</span>
+                    <span class="cover-meta-val">${incident.id}</span>
+                  </div>
+                  <div class="cover-meta-item">
+                    <span class="cover-meta-label">Security Asset</span>
+                    <span class="cover-meta-val">${incident.symbol} (NSE India)</span>
+                  </div>
+                  <div class="cover-meta-item">
+                    <span class="cover-meta-label">Threat Pattern</span>
+                    <span class="cover-meta-val">${incident.pattern}</span>
+                  </div>
+                  <div class="cover-meta-item">
+                    <span class="cover-meta-label">Severity Level</span>
+                    <span class="cover-meta-val">${incident.severity}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="cover-footer">
+                <div>CLASSIFICATION: COMPLIANCE REGULATORY CONFIDENTIAL</div>
+                <div>GENERATED: ${new Date().toLocaleString()}</div>
               </div>
             </div>
-            <div class="meta-item">
-              <span class="meta-label">Associated Actor</span>
-              <span class="meta-value">${trader.name} (${trader.id} • ${trader.role})</span>
+          </div>
+          
+          <!-- PAGE 2: METADATA & COMPLIANCE REGISTRY -->
+          <div class="page">
+            <div class="watermark">TradeGuard Compliance</div>
+            
+            <div class="page-header">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <img src="${window.location.origin}/brandlogo.png" style="height: 24px; width: auto; object-fit: contain;" />
+                <div class="page-header-logo">Trade<span>Guard</span></div>
+              </div>
+              <div class="page-header-title">Audit Metadata Registry</div>
+            </div>
+            
+            <h2 class="section-header">1. System Metadata & Execution Environment</h2>
+            <p class="narrative">
+              This section details the runtime execution environment of the TradeGuard surveillance core at the time of the flagged occurrence. 
+              Data feeds were captured directly from the National Stock Exchange (NSE) direct colocation feed.
+            </p>
+            
+            <div class="grid-2">
+              <div class="card-panel">
+                <div class="card-panel-title">Audit Execution Details</div>
+                <table style="width:100%; font-size:11px; border-collapse:collapse;">
+                  <tr><td style="padding:4px 0; color:#64748b;">Target Server IP:</td><td style="padding:4px 0; font-weight:bold; text-align:right;">10.10.50.157</td></tr>
+                  <tr><td style="padding:4px 0; color:#64748b;">Surveillance Gateway:</td><td style="padding:4px 0; font-weight:bold; text-align:right;">ns-gateway.nse.internal</td></tr>
+                  <tr><td style="padding:4px 0; color:#64748b;">Rule Core Version:</td><td style="padding:4px 0; font-weight:bold; text-align:right;">v5.2.14-Release</td></tr>
+                  <tr><td style="padding:4px 0; color:#64748b;">Database Signature:</td><td style="padding:4px 0; font-weight:bold; text-align:right;">SQLite-3.42.0-Audit</td></tr>
+                </table>
+              </div>
+              
+              <div class="card-panel">
+                <div class="card-panel-title">Incident Parameters</div>
+                <table style="width:100%; font-size:11px; border-collapse:collapse;">
+                  <tr><td style="padding:4px 0; color:#64748b;">AI Confidence Score:</td><td style="padding:4px 0; font-weight:bold; text-align:right; color:#8b5cf6;">${(incident.confidence * 100).toFixed(1)}%</td></tr>
+                  <tr><td style="padding:4px 0; color:#64748b;">Detection Latency:</td><td style="padding:4px 0; font-weight:bold; text-align:right;">14ms</td></tr>
+                  <tr><td style="padding:4px 0; color:#64748b;">Audit Timestamp:</td><td style="padding:4px 0; font-weight:bold; text-align:right;">${formatHumanReadableTime(incident.timestamp)}</td></tr>
+                  <tr><td style="padding:4px 0; color:#64748b;">Case Status:</td><td style="padding:4px 0; font-weight:bold; text-align:right; color:${incident.status === 'PENDING' ? '#f97316' : '#ef4444'};">${incident.status}</td></tr>
+                </table>
+              </div>
+            </div>
+            
+            <h2 class="section-header" style="margin-top:20px;">2. Surveillance Rule Checklist Status</h2>
+            <table class="dense-table">
+              <thead>
+                <tr>
+                  <th>Compliance Checkpoint</th>
+                  <th>Assigned Agent Module</th>
+                  <th>Core Engine Rule Ref</th>
+                  <th>Status Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Order-to-Trade Ratio (OTR) Limit</td>
+                  <td>OTR_Scanner_Core</td>
+                  <td>Rule-SEC-12A-01</td>
+                  <td><span class="badge passed">Passed</span></td>
+                </tr>
+                <tr>
+                  <td>Rapid Quote Stuffing / Layering Check</td>
+                  <td>Stuffing_Analyzer</td>
+                  <td>Rule-SEC-12A-04</td>
+                  <td><span class="badge flagged">Violation Flagged</span></td>
+                </tr>
+                <tr>
+                  <td>Wash Trading Identifier</td>
+                  <td>WashTrade_Detector</td>
+                  <td>Rule-SEC-12A-09</td>
+                  <td><span class="badge passed">Passed</span></td>
+                </tr>
+                <tr>
+                  <td>Cross-Market Spoofing Check</td>
+                  <td>Spoof_Analyzer</td>
+                  <td>Rule-SEC-12A-12</td>
+                  <td><span class="badge flagged">Flagged Attention</span></td>
+                </tr>
+                <tr>
+                  <td>Exchange Gateway Lag Diagnostic</td>
+                  <td>Gateway_Lag_Monitor</td>
+                  <td>Rule-SEC-SYS-99</td>
+                  <td><span class="badge passed">Normal</span></td>
+                </tr>
+              </tbody>
+            </table>
+            
+            <div class="page-footer">
+              <div>TradeGuard Forensic Audit Division</div>
+              <div>Page 2 of 3</div>
+            </div>
+          </div>
+          
+          <!-- PAGE 3: FORENSIC INVESTIGATION & RCA DETAIL -->
+          <div class="page">
+            <div class="watermark">TradeGuard Compliance</div>
+            
+            <div class="page-header">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <img src="${window.location.origin}/brandlogo.png" style="height: 24px; width: auto; object-fit: contain;" />
+                <div class="page-header-logo">Trade<span>Guard</span></div>
+              </div>
+              <div class="page-header-title">Forensic & Root Cause Analysis</div>
+            </div>
+            
+            <h2 class="section-header">3. Trader Profile & Registry Signatures</h2>
+            <table class="dense-table" style="margin-bottom:20px;">
+              <thead>
+                <tr>
+                  <th>Trader ID</th>
+                  <th>Associated Actor Name</th>
+                  <th>Corporate Role</th>
+                  <th>Terminal Host IP</th>
+                  <th>Registry Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="font-weight:bold;">${trader.id}</td>
+                  <td>${trader.name}</td>
+                  <td>${trader.role}</td>
+                  <td>${trader.ip}</td>
+                  <td><span class="badge" style="background:#fff1f2; color:#e11d48; border:1px solid rgba(225,29,72,0.2);">${trader.status}</span></td>
+                </tr>
+              </tbody>
+            </table>
+            
+            <h2 class="section-header">4. Root Cause Analysis (RCA) Metrics</h2>
+            <table class="dense-table" style="margin-bottom:20px;">
+              <thead>
+                <tr>
+                  <th>Metric Diagnostic</th>
+                  <th>Value</th>
+                  <th>Reference Threshold</th>
+                  <th>Audit Deviation Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Cancel-to-Fill Ratio</td>
+                  <td style="font-weight:bold; color:#ef4444;">94.2%</td>
+                  <td>&lt; 70.0% Max Limit</td>
+                  <td style="color:#ef4444; font-weight:bold;">CRITICAL OVERFLOW</td>
+                </tr>
+                <tr>
+                  <td>Average Cancellation Speed</td>
+                  <td style="font-weight:bold; color:#ef4444;">32ms</td>
+                  <td>&gt; 500ms Human Median</td>
+                  <td style="color:#ef4444; font-weight:bold;">ALGORITHMIC SPEED</td>
+                </tr>
+                <tr>
+                  <td>Order Ingress Velocity</td>
+                  <td style="font-weight:bold;">124 orders/sec</td>
+                  <td>&lt; 50 orders/sec Max</td>
+                  <td style="color:#f97316; font-weight:bold;">HIGH PRESSURE</td>
+                </tr>
+                <tr>
+                  <td>Target Asset Price Impact</td>
+                  <td style="font-weight:bold;">0.84%</td>
+                  <td>&lt; 0.10% Allowed Drift</td>
+                  <td style="color:#ef4444; font-weight:bold;">MANIPULATION SIGN</td>
+                </tr>
+              </tbody>
+            </table>
+            
+            <h2 class="section-header">5. Threat Vector & Graph Relational Flow</h2>
+            <div class="ascii-graph-box">
+[TRADER APPARATUS: ${trader.id}] --- (124 orders/sec ingress) ---&gt; [NSE GATEWAY: 10.10.50.157]
+                                                                        |
+                                                                  (32ms Cancel Latency)
+                                                                        |
+                                                                        v
+[PRICE MANIPULATION INDICATOR: +0.84%] &lt;--- (Depth Pressure) --- [ORDER BOOK LEVEL 3]</div>
+            
+            <h2 class="section-header">6. Forensic Narrative & Compliance Auditor Sign-Off</h2>
+            <p class="narrative" style="font-size:11px; margin-bottom:15px;">
+              <b>Incident Analysis Log:</b> ${incident.evidence}. The algorithmic pattern triggers matched our historical models for book pressure exploitation.
+              The compliance auditor team has reviewed the associated exchange feeds, and determined that the activity violates Section 12(A) of SEBI guidelines regarding unfair trade practices. 
+              The account remains flagged for executive action and potential exchange suspension.
+            </p>
+            
+            <div style="display:flex; justify-content:space-between; margin-top:20px; font-size:11px; border-top:1px dashed #cbd5e1; padding-top:15px;">
+              <div>
+                <div style="font-weight:bold; color:#64748b;">COMPLIANCE OFFICER</div>
+                <div style="margin-top:15px; border-bottom:1px solid #94a3b8; width:150px; height:12px;"></div>
+                <div style="margin-top:4px; font-size:10px; color:#94a3b8;">SEBI Compliance Officer Signature</div>
+              </div>
+              <div>
+                <div style="font-weight:bold; color:#64748b;">SURVEILLANCE LEAD</div>
+                <div style="margin-top:15px; border-bottom:1px solid #94a3b8; width:150px; height:12px;"></div>
+                <div style="margin-top:4px; font-size:10px; color:#94a3b8;">TradeGuard Security Operations</div>
+              </div>
+            </div>
+            
+            <div class="page-footer">
+              <div>TradeGuard Forensic Audit Division</div>
+              <div>Page 3 of 3</div>
             </div>
           </div>
 
-          <div class="section-title">Surveillance Intelligence Evidence</div>
-          <div class="evidence-box">${incident.evidence}</div>
-
-          <div class="section-title">Compliance Evaluation & Analysis</div>
-          <p style="font-size: 12.5px; color: #4b5563; line-height: 1.6;">
-            A high-severity algorithmic trading pattern was detected by the surveillance analyzer on the Indian Stock Exchange feed. 
-            The activity profile indicates rapid cancel-to-fill ratios, excessive depth manipulation at multiple order book levels, 
-            and artificial order book pressure intended to manipulate the reference price. 
-            The trader profile and routing signatures have been logged and compiled in this audit trail for regulatory submission.
-          </p>
-
-          <table style="width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 11.5px;">
-            <thead>
-              <tr style="background-color: #f4f4f7; border-bottom: 1px solid #e6e5eb; text-align: left;">
-                <th style="padding: 10px; font-weight: 700; color: var(--text-muted);">Evaluation Checkpoint</th>
-                <th style="padding: 10px; font-weight: 700; color: var(--text-muted);">Source / Agent</th>
-                <th style="padding: 10px; font-weight: 700; color: var(--text-muted);">Result status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr style="border-bottom: 1px solid #e6e5eb;">
-                <td style="padding: 10px;">Pattern Identification Engine</td>
-                <td style="padding: 10px;">TradeShield Rule Processor v4.1</td>
-                <td style="padding: 10px; color: #16a34a; font-weight: 700;">VERIFIED FLAG</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #e6e5eb;">
-                <td style="padding: 10px;">Trader Profile Investigation</td>
-                <td style="padding: 10px;">Security Service Directory</td>
-                <td style="padding: 10px; color: #16a34a; font-weight: 700;">RESOLVED</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #e6e5eb;">
-                <td style="padding: 10px;">Exchange Feed Diagnostics</td>
-                <td style="padding: 10px;">NSE Feed Connector</td>
-                <td style="padding: 10px; color: #16a34a; font-weight: 700;">STABLE FEED</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="footer">
-            Confidential regulatory report. Prepared by TradeShield NSE Compliance Triage Systems.
-            <br />
-            Do not distribute outside compliance auditor groups.
-          </div>
+          <script>
+            let triggered = false;
+            function triggerPrint() {
+              if (triggered) return;
+              triggered = true;
+              window.focus();
+              window.print();
+            }
+            window.onload = triggerPrint;
+            // Fallback timeout in case window load event is delayed or fails
+            setTimeout(triggerPrint, 3500);
+          </script>
         </body>
       </html>
     `);
     doc.close();
 
-    // Wait for the logo image to fully load before triggering the print command
+    // Since we now have print trigger scripts inside the iframe, the parent page
+    // only needs to clean up the iframe after the print operation has occurred!
     setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      setTimeout(() => {
+      if (document.body.contains(iframe)) {
         document.body.removeChild(iframe);
-      }, 1000);
-    }, 600);
+      }
+    }, 15000);
   }
 };
 
@@ -1458,6 +1838,196 @@ function App() {
   const [jiraConfig, setJiraConfig] = useState({ enabled: true, endpoint: "https://jira.tradeshield.internal/rest/api/2", projectKey: "COMP", issueType: "Incident", token: "bearer p83klw89s7..." });
   const [teamsConfig, setTeamsConfig] = useState({ enabled: false, webhookUrl: "https://outlook.office.com/webhook/73a98...", channelName: "Compliance Alerts" });
 
+  const saveTelegramConfig = async (overrideEnabled?: boolean) => {
+    try {
+      const isEnabled = typeof overrideEnabled === 'boolean' ? overrideEnabled : telegramConfig.enabled;
+      const response = await fetch(`${BACKEND_URL}/api/v1/channels/config/telegram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: isEnabled,
+          config: {
+            botToken: telegramConfig.botToken,
+            chatId: telegramConfig.chatId
+          }
+        })
+      });
+      if (response.ok) {
+        triggerToast("Telegram configuration saved to database successfully.");
+      } else {
+        triggerToast("Failed to save Telegram configuration.");
+      }
+    } catch (err) {
+      triggerToast("Error saving Telegram configuration: " + err);
+    }
+  };
+
+  const saveSmtpConfig = async (overrideEnabled?: boolean) => {
+    try {
+      const isEnabled = typeof overrideEnabled === 'boolean' ? overrideEnabled : smtpConfig.enabled;
+      const response = await fetch(`${BACKEND_URL}/api/v1/channels/config/smtp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: isEnabled,
+          config: {
+            host: smtpConfig.host,
+            port: smtpConfig.port,
+            user: smtpConfig.user,
+            from: smtpConfig.from,
+            to: smtpConfig.to
+          }
+        })
+      });
+      if (response.ok) {
+        triggerToast("SMTP configuration saved to database successfully.");
+      } else {
+        triggerToast("Failed to save SMTP configuration.");
+      }
+    } catch (err) {
+      triggerToast("Error saving SMTP configuration: " + err);
+    }
+  };
+
+  const saveJiraConfig = async (overrideEnabled?: boolean) => {
+    try {
+      const isEnabled = typeof overrideEnabled === 'boolean' ? overrideEnabled : jiraConfig.enabled;
+      const response = await fetch(`${BACKEND_URL}/api/v1/channels/config/jira`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: isEnabled,
+          config: {
+            endpoint: jiraConfig.endpoint,
+            projectKey: jiraConfig.projectKey,
+            issueType: jiraConfig.issueType,
+            token: jiraConfig.token
+          }
+        })
+      });
+      if (response.ok) {
+        triggerToast("Jira configuration saved to database successfully.");
+      } else {
+        triggerToast("Failed to save Jira configuration.");
+      }
+    } catch (err) {
+      triggerToast("Error saving Jira configuration: " + err);
+    }
+  };
+
+  const saveTeamsConfig = async (overrideEnabled?: boolean) => {
+    try {
+      const isEnabled = typeof overrideEnabled === 'boolean' ? overrideEnabled : teamsConfig.enabled;
+      const response = await fetch(`${BACKEND_URL}/api/v1/channels/config/teams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: isEnabled,
+          config: {
+            webhookUrl: teamsConfig.webhookUrl,
+            channelName: teamsConfig.channelName
+          }
+        })
+      });
+      if (response.ok) {
+        triggerToast("Teams configuration saved to database successfully.");
+      } else {
+        triggerToast("Failed to save Teams configuration.");
+      }
+    } catch (err) {
+      triggerToast("Error saving Teams configuration: " + err);
+    }
+  };
+
+  const testTelegramConnection = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/v1/channels/test/telegram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botToken: telegramConfig.botToken,
+          chatId: telegramConfig.chatId
+        })
+      });
+      const data = await response.json();
+      if (data.status === "success") {
+        triggerToast(`Telegram connection test: Success! Msg ID: ${data.message_id}`);
+      } else {
+        triggerToast(`Telegram connection test failed: ${data.message}`);
+      }
+    } catch (err) {
+      triggerToast("Telegram test error: " + err);
+    }
+  };
+
+  const testSmtpConnection = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/v1/channels/test/smtp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host: smtpConfig.host,
+          port: smtpConfig.port,
+          user: smtpConfig.user,
+          from: smtpConfig.from,
+          to: smtpConfig.to
+        })
+      });
+      const data = await response.json();
+      if (data.status === "success") {
+        triggerToast(`SMTP connection test: Success!`);
+      } else {
+        triggerToast(`SMTP connection test failed: ${data.message}`);
+      }
+    } catch (err) {
+      triggerToast("SMTP test error: " + err);
+    }
+  };
+
+  const testJiraConnection = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/v1/channels/test/jira`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: jiraConfig.endpoint,
+          projectKey: jiraConfig.projectKey,
+          issueType: jiraConfig.issueType,
+          token: jiraConfig.token
+        })
+      });
+      const data = await response.json();
+      if (data.status === "success") {
+        triggerToast(`Jira connection test: Success! Issue created: ${data.issue_key}`);
+      } else {
+        triggerToast(`Jira connection test failed: ${data.message}`);
+      }
+    } catch (err) {
+      triggerToast("Jira test error: " + err);
+    }
+  };
+
+  const testTeamsConnection = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/v1/channels/test/teams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webhookUrl: teamsConfig.webhookUrl,
+          channelName: teamsConfig.channelName
+        })
+      });
+      const data = await response.json();
+      if (data.status === "success") {
+        triggerToast(`Teams connection test: Success!`);
+      } else {
+        triggerToast(`Teams connection test failed: ${data.message}`);
+      }
+    } catch (err) {
+      triggerToast("Teams test error: " + err);
+    }
+  };
+
   // Policies States
   const [policySearch, setPolicySearch] = useState<string>("");
   const [policies, setPolicies] = useState([
@@ -1473,6 +2043,31 @@ function App() {
   const [newPolicyAction, setNewPolicyAction] = useState<string>("ESCALATE");
   const [newPolicyChannels, setNewPolicyChannels] = useState<string[]>(["Telegram"]);
 
+  // Multi-select & Edit States for Policies
+  const [selectedPolicyIds, setSelectedPolicyIds] = useState<string[]>([]);
+  const [editingPolicy, setEditingPolicy] = useState<any | null>(null);
+  const [showEditPolicyModal, setShowEditPolicyModal] = useState<boolean>(false);
+
+  // User Profile Dropdown & Trader CRUD States
+  const [showUserProfileDropdown, setShowUserProfileDropdown] = useState<boolean>(false);
+  const [showTraderCRUDModal, setShowTraderCRUDModal] = useState<boolean>(false);
+  const [crudModalMode, setCrudModalMode] = useState<'list' | 'add' | 'edit'>('list');
+  const [editingTrader, setEditingTrader] = useState<any | null>(null);
+  const [newTraderId, setNewTraderId] = useState<string>("");
+  const [newTraderName, setNewTraderName] = useState<string>("");
+  const [newTraderRole, setNewTraderRole] = useState<string>("");
+  const [newTraderSector, setNewTraderSector] = useState<string>("");
+  const [newTraderStatus, setNewTraderStatus] = useState<string>("ACTIVE");
+  // RCA Incident search states
+  const [rcaSearchQuery, setRcaSearchQuery] = useState<string>("");
+  const [showRcaIncidentDropdown, setShowRcaIncidentDropdown] = useState<boolean>(false);
+  const [rcaSelectedIncident, setRcaSelectedIncident] = useState<Incident | null>(null);
+  const [rcaLoading, setRcaLoading] = useState<boolean>(false);
+
+  // Event log filter states
+  const [eventSearchQuery, setEventSearchQuery] = useState<string>("");
+  const [eventTagFilter, setEventTagFilter] = useState<string>("ALL");
+
   // Trader Directory selection
   const FALLBACK_TRADERS = [
     { trader_id: "TRADER_001", name: "Aarav Sharma", role: "Senior Desk Trader", sector: "Energy" },
@@ -1484,6 +2079,134 @@ function App() {
   const [tradersList, setTradersList] = useState<any[]>(FALLBACK_TRADERS);
   const [traderSearchQuery, setTraderSearchQuery] = useState<string>("Aarav Sharma (TRADER_001)");
   const [showTraderDropdown, setShowTraderDropdown] = useState<boolean>(false);
+
+  const refreshTradersList = () => {
+    fetch(`${BACKEND_URL}/api/v1/detect/traders`)
+      .then(res => {
+        if (!res.ok) throw new Error("API error");
+        return res.json();
+      })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setTradersList(data);
+        }
+      })
+      .catch(err => {
+        console.error("Failed to refresh traders list:", err);
+      });
+  };
+
+  const refreshPoliciesList = () => {
+    fetch(`${BACKEND_URL}/api/v1/detect/policies`)
+      .then(res => {
+        if (!res.ok) throw new Error("API error");
+        return res.json();
+      })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setPolicies(data);
+        }
+      })
+      .catch(err => {
+        console.error("Failed to refresh policies list:", err);
+      });
+  };
+
+  const refreshIncidentsList = () => {
+    fetch(`${BACKEND_URL}/api/v1/detect/incidents`)
+      .then(res => {
+        if (!res.ok) throw new Error("API error");
+        return res.json();
+      })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setIncidents(data);
+          if (data.length > 0) {
+            setSelectedIncident(prev => {
+              if (!prev) return data[0];
+              const found = data.find(i => i.id === prev.id);
+              return found || data[0];
+            });
+          }
+        }
+      })
+      .catch(err => {
+        console.error("Failed to refresh incidents list:", err);
+      });
+  };
+
+  const refreshEventsList = () => {
+    fetch(`${BACKEND_URL}/api/v1/detect/events`)
+      .then(res => {
+        if (!res.ok) throw new Error("API error");
+        return res.json();
+      })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setLogs(data.map(log => log.message));
+        }
+      })
+      .catch(err => {
+        console.error("Failed to refresh events list:", err);
+      });
+  };
+
+  const exportPolicies = (policiesToExport: typeof policies) => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(policiesToExport, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `policy_rules_${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    triggerToast(`Exported ${policiesToExport.length} policy rules.`);
+  };
+
+  const handleImportPolicies = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const imported = JSON.parse(e.target?.result as string);
+        if (Array.isArray(imported)) {
+          const validated = imported.map((p, idx) => ({
+            id: p.id || `POL-IMP-${Date.now()}-${idx}`,
+            name: p.name || "Imported Rule",
+            pattern: p.pattern || "SPOOFING",
+            severity: p.severity || "MEDIUM",
+            action: p.action || "LOG_AUDIT",
+            channels: Array.isArray(p.channels) ? p.channels : ["Telegram"],
+            enabled: typeof p.enabled === 'boolean' ? p.enabled : true
+          }));
+          fetch(`${BACKEND_URL}/api/v1/detect/policies/bulk-import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ policies: validated })
+          })
+          .then(res => {
+            if (!res.ok) throw new Error("API error");
+            return res.json();
+          })
+          .then(() => {
+            refreshPoliciesList();
+            triggerToast(`Successfully imported ${validated.length} policy rules.`);
+          })
+          .catch(err => {
+            console.error("Failed to bulk import policies:", err);
+            triggerToast("Failed to import policies into database.");
+          });
+        } else {
+          triggerToast("Invalid format. Imported data must be an array of rules.");
+        }
+      } catch {
+        triggerToast("Failed to parse JSON policy file.");
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = "";
+  };
+
 
   useEffect(() => {
     fetch(`${BACKEND_URL}/api/v1/detect/traders`)
@@ -1502,6 +2225,55 @@ function App() {
       .catch(err => {
         console.warn("Could not fetch trader profiles from backend, using fallbacks:", err);
       });
+    
+    // Fetch channels configurations
+    fetch(`${BACKEND_URL}/api/v1/channels/config`)
+      .then(res => {
+        if (!res.ok) throw new Error("API error");
+        return res.json();
+      })
+      .then(data => {
+        if (data.telegram) {
+          setTelegramConfig({
+            enabled: data.telegram.enabled ?? false,
+            botToken: data.telegram.botToken ?? "",
+            chatId: data.telegram.chatId ?? ""
+          });
+        }
+        if (data.smtp) {
+          setSmtpConfig({
+            enabled: data.smtp.enabled ?? false,
+            host: data.smtp.host ?? "",
+            port: data.smtp.port ?? 587,
+            user: data.smtp.user ?? "",
+            from: data.smtp.from ?? "",
+            to: data.smtp.to ?? ""
+          });
+        }
+        if (data.jira) {
+          setJiraConfig({
+            enabled: data.jira.enabled ?? false,
+            endpoint: data.jira.endpoint ?? "",
+            projectKey: data.jira.projectKey ?? "",
+            issueType: data.jira.issueType ?? "Incident",
+            token: data.jira.token ?? ""
+          });
+        }
+        if (data.teams) {
+          setTeamsConfig({
+            enabled: data.teams.enabled ?? false,
+            webhookUrl: data.teams.webhookUrl ?? "",
+            channelName: data.teams.channelName ?? ""
+          });
+        }
+      })
+      .catch(err => {
+        console.warn("Could not fetch channels configurations from backend:", err);
+      });
+
+    refreshPoliciesList();
+    refreshIncidentsList();
+    refreshEventsList();
   }, []);
 
   useEffect(() => {
@@ -1509,6 +2281,12 @@ function App() {
       const target = e.target as HTMLElement;
       if (!target.closest('.anomaly-control-group')) {
         setShowTraderDropdown(false);
+      }
+      if (!target.closest('.user-profile-group')) {
+        setShowUserProfileDropdown(false);
+      }
+      if (!target.closest('.rca-dropdown-group')) {
+        setShowRcaIncidentDropdown(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -1519,6 +2297,17 @@ function App() {
   const [funds, setFunds] = useState<number>(150000); 
   const [showAddFundsModal, setShowAddFundsModal] = useState<boolean>(false);
   const [addFundsAmount, setAddFundsAmount] = useState<string>("50000");
+
+  // System Settings Modal states
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [profileName, setProfileName] = useState<string>(() => localStorage.getItem("tradeSurveillance_profileName") || "Rohan Sharma");
+  const [profileRole, setProfileRole] = useState<string>(() => localStorage.getItem("tradeSurveillance_profileRole") || "Compliance L1 Officer");
+  const [llmProvider, setLlmProvider] = useState<string>(() => localStorage.getItem("tradeSurveillance_llmProvider") || "Anthropic Claude");
+  const [anthropicApiKey, setAnthropicApiKey] = useState<string>(() => localStorage.getItem("tradeSurveillance_anthropicApiKey") || "");
+  const [openaiApiKey, setOpenaiApiKey] = useState<string>(() => localStorage.getItem("tradeSurveillance_openaiApiKey") || "");
+  const [showAnthropicKey, setShowAnthropicKey] = useState<boolean>(false);
+  const [showOpenaiKey, setShowOpenaiKey] = useState<boolean>(false);
+
 
   // Panel resizing & UI collapse states
   const [watchlistWidth, setWatchlistWidth] = useState<number>(280);
@@ -1578,6 +2367,10 @@ function App() {
 
   // Replay speed state
   const [replaySpeed, setReplaySpeed] = useState<number>(10); // Default 10x
+  const [isReplaying, setIsReplaying] = useState<boolean>(true);
+  const [jumpDateTime, setJumpDateTime] = useState<string>("");
+  const [datasetTimeRange, setDatasetTimeRange] = useState<{ start: string; end: string } | null>(null);
+  const [currentPlaybackTime, setCurrentPlaybackTime] = useState<string | null>(null);
 
   // Live state
   const [currentTick, setCurrentTick] = useState<Tick | null>(null);
@@ -1677,6 +2470,10 @@ function App() {
   const websocketRef = useRef<WebSocket | null>(null);
   const eventsConsoleEndRef = useRef<HTMLDivElement>(null);
   const lastHistoricalTimestampRef = useRef<string | null>(null);
+  const lastStreamedTimestampRef = useRef<string | null>(null);
+  const activeInstrumentIdRef = useRef<string>("");
+  const replaySpeedRef = useRef<number>(10);
+  const markersPluginRef = useRef<any>(null);
 
   // Helper for adding notifications and logging events
   const triggerToast = (msg: string) => {
@@ -1688,7 +2485,23 @@ function App() {
 
   const addEventLog = (msg: string, tag: string = "INFO") => {
     const time = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, `[${time}] [${tag}] ${msg}`]);
+    const formatted = `[${time}] [${tag}] ${msg}`;
+    fetch(`${BACKEND_URL}/api/v1/detect/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: formatted })
+    })
+    .then(res => {
+      if (!res.ok) throw new Error("API error");
+      return res.json();
+    })
+    .then(() => {
+      refreshEventsList();
+    })
+    .catch(err => {
+      console.warn("Could not save log to backend:", err);
+      setLogs(prev => [...prev, formatted]);
+    });
   };
 
   // Scroll events log console
@@ -1875,6 +2688,21 @@ function App() {
           setCandles(aggCandles);
           setVolumes(aggVolumes);
           
+          if (sorted.length > 0) {
+            const startStr = sorted[0].timestamp;
+            const endStr = sorted[sorted.length - 1].timestamp;
+            setDatasetTimeRange({ start: startStr, end: endStr });
+            setCurrentPlaybackTime(startStr);
+            try {
+              const dt = new Date(startStr);
+              const offset = dt.getTimezoneOffset();
+              const localDt = new Date(dt.getTime() - (offset * 60 * 1000));
+              setJumpDateTime(localDt.toISOString().slice(0, 16));
+            } catch (e) {
+              setJumpDateTime(startStr.slice(0, 16));
+            }
+          }
+
           const lastTrade = sorted[sorted.length - 1];
           lastHistoricalTimestampRef.current = lastTrade.timestamp;
           const basePrice = lastTrade.cp || initialClose;
@@ -1892,34 +2720,138 @@ function App() {
     loadHistory();
   }, [activeInstrumentId]);
 
+  // Synchronize ref values
+  useEffect(() => {
+    activeInstrumentIdRef.current = activeInstrumentId || "";
+  }, [activeInstrumentId]);
+
+  useEffect(() => {
+    replaySpeedRef.current = replaySpeed;
+  }, [replaySpeed]);
+
+  // Reset last streamed timestamp when instrument changes
+  useEffect(() => {
+    lastStreamedTimestampRef.current = null;
+  }, [activeInstrumentId]);
+
+  // Close websocket on unmount
+  useEffect(() => {
+    return () => {
+      if (websocketRef.current) {
+        websocketRef.current.close();
+      }
+    };
+  }, []);
+
+  const handleJumpToTime = (targetTimeStr?: string) => {
+    const timeToJump = targetTimeStr || jumpDateTime;
+    if (!timeToJump) return;
+    
+    let isoString = "";
+    try {
+      const parsed = new Date(timeToJump);
+      isoString = parsed.toISOString();
+    } catch (e) {
+      isoString = timeToJump;
+    }
+    
+    setCandles([]);
+    setVolumes([]);
+    lastStreamedTimestampRef.current = isoString;
+    setCurrentPlaybackTime(isoString);
+    
+    addEventLog(`Jumping replay timeline to: ${isoString}`, "REPLAY");
+    triggerToast(`Jumping timeline to ${isoString}`);
+    
+    if (websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
+      setIsReplaying(true);
+      websocketRef.current.send(JSON.stringify({
+        action: "subscribe",
+        instrument: activeInstrumentId,
+        speed: replaySpeed,
+        start_after: isoString
+      }));
+    }
+  };
+
+  const handleTogglePlayPause = () => {
+    const nextState = !isReplaying;
+    setIsReplaying(nextState);
+    
+    if (websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
+      if (nextState) {
+        addEventLog(`Resuming replay stream for ${activeInstrument.symbol} at ${replaySpeed}x.`, "WS");
+        triggerToast("Resuming replay");
+        websocketRef.current.send(JSON.stringify({
+          action: "subscribe",
+          instrument: activeInstrumentId,
+          speed: replaySpeed,
+          start_after: lastStreamedTimestampRef.current || lastHistoricalTimestampRef.current
+        }));
+      } else {
+        addEventLog(`Pausing replay stream for ${activeInstrument.symbol}.`, "WS");
+        triggerToast("Pausing replay");
+        websocketRef.current.send(JSON.stringify({
+          action: "unsubscribe",
+          instrument: activeInstrumentId
+        }));
+      }
+    }
+  };
+
   // 3. Setup WebSocket connection for streaming ticks
   useEffect(() => {
     if (!activeInstrumentId) return;
     if (activeInstrumentId.startsWith("UPLOADED|")) return; 
 
-    if (websocketRef.current) {
-      websocketRef.current.close();
+    // Create or retrieve WebSocket connection
+    let ws = websocketRef.current;
+    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      addEventLog(`Establishing persistent WebSocket connection to replayer.`, "WS");
+      ws = new WebSocket(WS_URL);
+      websocketRef.current = ws;
     }
 
-    const ws = new WebSocket(WS_URL);
-    websocketRef.current = ws;
-
-    ws.onopen = () => {
-      addEventLog(`WebSocket connection open. Subscribing to ${activeInstrument.symbol} replayer.`, "WS");
-      ws.send(JSON.stringify({
-        action: "subscribe",
-        instrument: activeInstrumentId,
-        speed: replaySpeed,
-        start_after: lastHistoricalTimestampRef.current
-      }));
+    const handleOpen = () => {
+      if (isReplaying) {
+        addEventLog(`WebSocket connection open. Subscribing to ${activeInstrument.symbol} replayer.`, "WS");
+        ws.send(JSON.stringify({
+          action: "subscribe",
+          instrument: activeInstrumentId,
+          speed: replaySpeed,
+          start_after: lastStreamedTimestampRef.current || lastHistoricalTimestampRef.current
+        }));
+      }
     };
+
+    if (ws.readyState === WebSocket.OPEN) {
+      if (isReplaying) {
+        addEventLog(`Updating replayer stream subscription for ${activeInstrument.symbol} at ${replaySpeed}x.`, "WS");
+        ws.send(JSON.stringify({
+          action: "subscribe",
+          instrument: activeInstrumentId,
+          speed: replaySpeed,
+          start_after: lastStreamedTimestampRef.current || lastHistoricalTimestampRef.current
+        }));
+      } else {
+        addEventLog(`Sending pause signal to replayer stream for ${activeInstrument.symbol}.`, "WS");
+        ws.send(JSON.stringify({
+          action: "unsubscribe",
+          instrument: activeInstrumentId
+        }));
+      }
+    } else {
+      ws.onopen = handleOpen;
+    }
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
-      if (msg.type === "tick" && msg.instrument === activeInstrumentId) {
+      if (msg.type === "tick" && msg.instrument === activeInstrumentIdRef.current) {
         const tickData: Tick = msg.data;
         setCurrentTick(tickData);
         setLastLtp(tickData.ltp);
+        lastStreamedTimestampRef.current = tickData.timestamp;
+        setCurrentPlaybackTime(tickData.timestamp);
 
         if (orderPriceType === 'MARKET') {
           setOrderPrice(tickData.ltp.toFixed(2));
@@ -1932,7 +2864,7 @@ function App() {
 
         setInstruments(prev => 
           prev.map(inst => {
-            if (inst.instrument_id === activeInstrumentId) {
+            if (inst.instrument_id === activeInstrumentIdRef.current) {
               return {
                 ...inst,
                 price: tickData.ltp,
@@ -2015,11 +2947,7 @@ function App() {
     ws.onclose = () => {
       addEventLog(`WebSocket connection to feed disconnected.`, "WS");
     };
-
-    return () => {
-      ws.close();
-    };
-  }, [activeInstrumentId, replaySpeed]);
+  }, [activeInstrumentId, replaySpeed, isReplaying]);
 
   // 4. Render lightweight-charts inside the container
   useEffect(() => {
@@ -2081,6 +3009,7 @@ function App() {
     });
 
     candlestickSeriesRef.current = candlestickSeries;
+    markersPluginRef.current = createSeriesMarkers(candlestickSeries, []);
     volumeSeriesRef.current = volumeSeries;
     chartRef.current = chart;
 
@@ -2125,6 +3054,7 @@ function App() {
       chart.remove();
       chartRef.current = null;
       candlestickSeriesRef.current = null;
+      markersPluginRef.current = null;
       volumeSeriesRef.current = null;
     };
   }, [currentView]);
@@ -2244,7 +3174,9 @@ function App() {
         });
 
         markers.sort((a, b) => (a.time as number) - (b.time as number));
-        (candlestickSeriesRef.current as any).setMarkers(markers);
+        if (markersPluginRef.current) {
+          markersPluginRef.current.setMarkers(markers);
+        }
 
         if (lastInstrumentIdRef.current !== activeInstrumentId) {
           chartRef.current.timeScale().fitContent();
@@ -2507,13 +3439,16 @@ function App() {
         cancel_time_median: customCancelMedian,
         order_count: customOrderCount,
         price_impact: customPriceImpact / 100,
-        description: desc
+        description: desc,
+        timestamp: timeStr
       })
     })
     .then(res => res.json())
     .then(data => {
       console.log("Anomaly logged for audit accountability:", data);
       triggerToast(`Audit DB Registered: ACTOR_INJECT_${data.injection_id || "OK"}`);
+      refreshIncidentsList();
+      refreshEventsList();
     })
     .catch(err => {
       console.error("Failed to log anomaly accountability on backend:", err);
@@ -2570,7 +3505,9 @@ function App() {
           pattern_type: surveillanceAlert.pattern_type,
           evidence: surveillanceAlert.evidence,
           instrument: surveillanceAlert.instrument,
-          timestamp: surveillanceAlert.timestamp
+          timestamp: surveillanceAlert.timestamp,
+          llm_provider: llmProvider,
+          api_key: llmProvider === "Anthropic Claude" ? anthropicApiKey : openaiApiKey
         })
       });
       const result = await response.json();
@@ -2721,14 +3658,67 @@ function App() {
     inst.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // ── Event Log helpers (computed before return to avoid IIFE in JSX) ──
+  const EVENT_TAG_META: Record<string, { color: string; bg: string; border: string; rowBg: string }> = {
+    THREAT:  { color: '#b91c1c', bg: '#fee2e2', border: '#ef4444', rowBg: '#fff8f8' },
+    TRADE:   { color: '#15803d', bg: '#dcfce7', border: '#22c55e', rowBg: '#f0fdf4' },
+    SYSTEM:  { color: '#1d4ed8', bg: '#dbeafe', border: '#3b82f6', rowBg: '#eff6ff' },
+    WS:      { color: '#7c3aed', bg: '#ede9fe', border: '#8b5cf6', rowBg: '#faf5ff' },
+    HISTORY: { color: '#c2410c', bg: '#ffedd5', border: '#f97316', rowBg: '#fff7ed' },
+    WALLET:  { color: '#a16207', bg: '#fef9c3', border: '#eab308', rowBg: '#fefce8' },
+    INFO:    { color: '#475569', bg: '#f1f5f9', border: '#94a3b8', rowBg: '#ffffff' },
+  };
+  const parseEventLog = (log: string) => {
+    let tag = 'INFO';
+    if (log.includes('[THREAT]'))       tag = 'THREAT';
+    else if (log.includes('[TRADE]'))   tag = 'TRADE';
+    else if (log.includes('[SYSTEM]'))  tag = 'SYSTEM';
+    else if (log.includes('[WS]'))      tag = 'WS';
+    else if (log.includes('[HISTORY]')) tag = 'HISTORY';
+    else if (log.includes('[WALLET]'))  tag = 'WALLET';
+    const timeMatch = log.match(/\[(\d{1,2}:\d{2}:\d{2}(?:\s?[AP]M)?)\]/);
+    const time = timeMatch ? timeMatch[1] : '';
+    const message = log
+      .replace(/\[\d{1,2}:\d{2}:\d{2}(?:\s?[AP]M)?\]\s*/, '')
+      .replace(`[${tag}] `, '').trim();
+    return { tag, time, message };
+  };
+  const filteredEventLogs = logs.filter(log => {
+    const { tag, message } = parseEventLog(log);
+    const tagMatch = eventTagFilter === 'ALL' || tag === eventTagFilter;
+    const searchMatch = !eventSearchQuery.trim() ||
+      message.toLowerCase().includes(eventSearchQuery.toLowerCase()) ||
+      tag.toLowerCase().includes(eventSearchQuery.toLowerCase());
+    return tagMatch && searchMatch;
+  });
+  const eventTagCounts = ['THREAT','TRADE','SYSTEM','WS','HISTORY','WALLET','INFO'].reduce((acc, t) => {
+    acc[t] = logs.filter(l => parseEventLog(l).tag === t).length;
+    return acc;
+  }, {} as Record<string, number>);
+  const handleExportEventsCSV = () => {
+    const rows = ['Time,Type,Message', ...filteredEventLogs.map(log => {
+      const { tag, time, message } = parseEventLog(log);
+      return `"${time}","${tag}","${message.replace(/"/g, '""')}"`;
+    })];
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'events_log.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+  const handleExportEventsTXT = () => {
+    const blob = new Blob([filteredEventLogs.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'events_log.txt'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className="app-container">
+    <div className="app-container" style={{ '--buy-green': chartUpColor, '--sell-red': chartDownColor } as React.CSSProperties}>
       {/* 1. Main Header (Single word navigation menus) */}
       <header className="main-header">
         <div className="header-left">
           <div className="logo-container" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <img src="/brandlogo.png" alt="TradeShield Logo" style={{ height: '30px', width: 'auto', objectFit: 'contain' }} />
-            <div className="logo-text" style={{ color: '#2b6cb0', fontWeight: '800', fontSize: '17px' }}>TradeShield</div>
           </div>
           
           <div className="indices-ticker">
@@ -2789,9 +3779,112 @@ function App() {
             <Plus size={11} style={{ marginRight: '2px', display: 'inline' }} /> Add Funds
           </button>
           
-          <div className="user-profile">
-            <User size={16} />
+          <div className="user-profile-group" style={{ position: 'relative' }}>
+            <div className="user-profile" onClick={() => setShowUserProfileDropdown(prev => !prev)} style={{ cursor: 'pointer' }}>
+              <User size={16} />
+            </div>
+            {showUserProfileDropdown && (
+              <div style={{
+                position: 'absolute',
+                top: '40px',
+                right: 0,
+                width: '200px',
+                backgroundColor: 'white',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                boxShadow: 'var(--shadow-lg)',
+                padding: '8px 0',
+                zIndex: 1000,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px'
+              }}>
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 'bold', fontSize: '12px', color: 'var(--text-main)' }}>{profileName}</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{profileRole}</span>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowUserProfileDropdown(false);
+                    refreshTradersList();
+                    setShowTraderCRUDModal(true);
+                    setCrudModalMode('list');
+                  }}
+                  className="dropdown-item"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: '8px 12px',
+                    textAlign: 'left',
+                    fontSize: '11.5px',
+                    color: '#334155',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    width: '100%'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <User size={12} />
+                  Manage Trader Profiles
+                </button>
+                <button
+                  onClick={() => {
+                    setShowUserProfileDropdown(false);
+                    setShowSettingsModal(true);
+                  }}
+                  className="dropdown-item"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: '8px 12px',
+                    textAlign: 'left',
+                    fontSize: '11.5px',
+                    color: '#334155',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    width: '100%'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <Settings size={12} />
+                  System Settings
+                </button>
+                <div style={{ borderTop: '1px solid var(--border)', marginTop: '4px', paddingTop: '4px' }}>
+                  <button
+                    onClick={() => {
+                      setShowUserProfileDropdown(false);
+                      triggerToast("Logged out successfully.");
+                    }}
+                    className="dropdown-item"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: '8px 12px',
+                      textAlign: 'left',
+                      fontSize: '11.5px',
+                      color: 'var(--sell-red)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      width: '100%'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
+                    Logout
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
+
         </div>
       </header>
 
@@ -2890,52 +3983,58 @@ function App() {
                       zIndex: 1000,
                       marginTop: '2px'
                     }}>
-                      {tradersList
-                        .filter(t => 
-                          t.name.toLowerCase().includes(traderSearchQuery.toLowerCase()) || 
-                          t.trader_id.toLowerCase().includes(traderSearchQuery.toLowerCase()) ||
-                          t.role.toLowerCase().includes(traderSearchQuery.toLowerCase())
-                        )
-                        .map(t => (
-                          <div 
-                            key={t.trader_id}
-                            style={{ 
-                              padding: '6px 10px', 
-                              cursor: 'pointer', 
-                              fontSize: '11px',
-                              borderBottom: '1px solid #f7fafc',
-                              backgroundColor: actorAccountId === t.trader_id ? '#ebf8ff' : 'transparent',
-                              color: '#2d3748'
-                            }}
-                            onMouseDown={() => {
-                              setActorAccountId(t.trader_id);
-                              setTraderSearchQuery(`${t.name} (${t.trader_id})`);
-                              setShowTraderDropdown(false);
-                            }}
-                            onMouseEnter={(e) => {
-                              if (actorAccountId !== t.trader_id) {
-                                e.currentTarget.style.backgroundColor = '#f7fafc';
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (actorAccountId !== t.trader_id) {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                              }
-                            }}
-                          >
-                            <div style={{ fontWeight: 'bold' }}>{t.name} ({t.trader_id})</div>
-                            <div style={{ fontSize: '9.5px', color: '#718096' }}>{t.role} • {t.sector}</div>
-                          </div>
-                        ))}
-                      {tradersList.filter(t => 
-                        t.name.toLowerCase().includes(traderSearchQuery.toLowerCase()) || 
-                        t.trader_id.toLowerCase().includes(traderSearchQuery.toLowerCase()) ||
-                        t.role.toLowerCase().includes(traderSearchQuery.toLowerCase())
-                      ).length === 0 && (
-                        <div style={{ padding: '6px 10px', fontSize: '11px', color: '#a0aec0', textAlign: 'center' }}>
-                          No profiles found
-                        </div>
-                      )}
+                      {(() => {
+                        const filtered = tradersList.filter(t => {
+                          const selectedTrader = tradersList.find(x => x.trader_id === actorAccountId);
+                          const isExactMatch = selectedTrader && traderSearchQuery === `${selectedTrader.name} (${selectedTrader.trader_id})`;
+                          if (isExactMatch || !traderSearchQuery.trim()) return true;
+                          
+                          const q = traderSearchQuery.toLowerCase();
+                          return t.name.toLowerCase().includes(q) || 
+                                 t.trader_id.toLowerCase().includes(q) ||
+                                 t.role.toLowerCase().includes(q);
+                        });
+                        return (
+                          <>
+                            {filtered.map(t => (
+                              <div 
+                                key={t.trader_id}
+                                style={{ 
+                                  padding: '6px 10px', 
+                                  cursor: 'pointer', 
+                                  fontSize: '11px',
+                                  borderBottom: '1px solid #f7fafc',
+                                  backgroundColor: actorAccountId === t.trader_id ? '#ebf8ff' : 'transparent',
+                                  color: '#2d3748'
+                                }}
+                                onMouseDown={() => {
+                                  setActorAccountId(t.trader_id);
+                                  setTraderSearchQuery(`${t.name} (${t.trader_id})`);
+                                  setShowTraderDropdown(false);
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (actorAccountId !== t.trader_id) {
+                                    e.currentTarget.style.backgroundColor = '#f7fafc';
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (actorAccountId !== t.trader_id) {
+                                    e.currentTarget.style.backgroundColor = 'transparent';
+                                  }
+                                }}
+                              >
+                                <div style={{ fontWeight: 'bold' }}>{t.name} ({t.trader_id})</div>
+                                <div style={{ fontSize: '9.5px', color: '#718096' }}>{t.role} • {t.sector}</div>
+                              </div>
+                            ))}
+                            {filtered.length === 0 && (
+                              <div style={{ padding: '6px 10px', fontSize: '11px', color: '#a0aec0', textAlign: 'center' }}>
+                                No profiles found
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -3082,7 +4181,7 @@ function App() {
                     <div className="watchlist-item-actions">
                       <button 
                         className="quick-btn buy" 
-                        style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: '#1a73e8', color: 'white' }}
+                        style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: 'var(--buy-green)', color: 'white' }}
                         onClick={(e) => {
                           e.stopPropagation();
                           setActiveInstrumentId(inst.instrument_id);
@@ -3093,7 +4192,7 @@ function App() {
                       </button>
                       <button 
                         className="quick-btn sell" 
-                        style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: '#ef5350', color: 'white' }}
+                        style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: 'var(--sell-red)', color: 'white' }}
                         onClick={(e) => {
                           e.stopPropagation();
                           setActiveInstrumentId(inst.instrument_id);
@@ -3136,7 +4235,7 @@ function App() {
                     <div className="watchlist-item-actions">
                       <button 
                         className="quick-btn buy" 
-                        style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: '#1a73e8', color: 'white' }}
+                        style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: 'var(--buy-green)', color: 'white' }}
                         onClick={(e) => {
                           e.stopPropagation();
                           triggerToast(`${inst.symbol} is currently simulated. Select RELIANCE or HDFCBANK to replay live data.`);
@@ -3146,7 +4245,7 @@ function App() {
                       </button>
                       <button 
                         className="quick-btn sell" 
-                        style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: '#ef5350', color: 'white' }}
+                        style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', border: 'none', borderRadius: '3px', cursor: 'pointer', backgroundColor: 'var(--sell-red)', color: 'white' }}
                         onClick={(e) => {
                           e.stopPropagation();
                           triggerToast(`${inst.symbol} is currently simulated. Select RELIANCE or HDFCBANK to replay live data.`);
@@ -3477,7 +4576,16 @@ function App() {
               </div>
 
               <div className="chart-timestamp">
-                Replaying: {currentTick ? new Date(currentTick.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()}
+                Replaying: {(() => {
+                  const ts = currentTick ? currentTick.timestamp : null;
+                  if (!ts) return new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour12: false }) + " IST";
+                  try {
+                    const d = new Date(ts);
+                    return d.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour12: false }) + " IST";
+                  } catch (e) {
+                    return ts;
+                  }
+                })()}
               </div>
 
               <div className="chart-attribution">
@@ -3575,10 +4683,10 @@ function App() {
                           </ul>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '16px', width: '100%' }}>
                           <button 
                             className="place-order-btn buy" 
-                            style={{ padding: '4px 10px', fontSize: '10px' }}
+                            style={{ flex: 1, padding: '10px 16px', fontSize: '12.5px', fontWeight: 'bold', height: '38px', cursor: 'pointer', borderRadius: '6px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             onClick={() => {
                               setIncidents(prev => prev.map(inc => inc.id === surveillanceAlert.alert_id ? { ...inc, status: 'ESCALATED' } : inc));
                               triggerToast("Alert escalated to Compliance Desk L2. Order history archived.");
@@ -3591,7 +4699,7 @@ function App() {
                           </button>
                           <button 
                             className="place-order-btn sell" 
-                            style={{ padding: '4px 10px', fontSize: '10px', backgroundColor: '#9e9e9e' }}
+                            style={{ flex: 1, padding: '10px 16px', fontSize: '12.5px', fontWeight: 'bold', height: '38px', cursor: 'pointer', borderRadius: '6px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             onClick={() => {
                               setIncidents(prev => prev.map(inc => inc.id === surveillanceAlert.alert_id ? { ...inc, status: 'DISMISSED' } : inc));
                               triggerToast("Compliance alert dismissed as false positive.");
@@ -3943,7 +5051,7 @@ function App() {
                       <td>
                         <span className={`alert-severity-badge ${inc.severity}`} style={{ fontSize: '9px', padding: '2px 6px' }}>{inc.severity}</span>
                       </td>
-                      <td style={{ color: 'var(--text-muted)' }}>{inc.timestamp}</td>
+                      <td style={{ color: 'var(--text-muted)' }}>{formatHumanReadableTime(inc.timestamp)}</td>
                       <td>
                         <span style={{ 
                           fontSize: '10px', 
@@ -4056,7 +5164,7 @@ function App() {
                     </div>
                     <div>
                       <span style={{ color: 'var(--text-muted)' }}>Detected Time: </span>
-                      <span>{selectedIncident.timestamp}</span>
+                      <span>{formatHumanReadableTime(selectedIncident.timestamp)}</span>
                     </div>
                     <div>
                       <span style={{ color: 'var(--text-muted)' }}>AI Confidence Score: </span>
@@ -4109,24 +5217,94 @@ function App() {
           </div>
         </div>
       ) : currentView === 'events' ? (
-        <div className="events-container">
-          <div>
-            <h2 style={{ fontSize: '18px', fontWeight: '800' }}>Realtime System Events Console</h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '2px' }}>Live streams from the compliance and threat injection worker engines.</p>
+        <div className="events-container" style={{ padding: '14px', gap: '10px' }}>
+
+          {/* ── Top Bar ── */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div>
+              <h2 style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', margin: 0 }}>System Event Log</h2>
+              <p style={{ color: '#94a3b8', fontSize: '10.5px', margin: '1px 0 0' }}>
+                {filteredEventLogs.length} of {logs.length} events · Live surveillance engine feed
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={11} style={{ position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none' }} />
+                <input
+                  type="text"
+                  placeholder="Search messages…"
+                  value={eventSearchQuery}
+                  onChange={e => setEventSearchQuery(e.target.value)}
+                  style={{ paddingLeft: '24px', paddingRight: '8px', height: '26px', border: '1px solid #e2e8f0', borderRadius: '5px', fontSize: '11px', width: '170px', color: '#374151', outline: 'none', backgroundColor: 'white' }}
+                />
+              </div>
+              <button onClick={handleExportEventsCSV} style={{ height: '26px', padding: '0 10px', fontSize: '10.5px', fontWeight: '600', border: '1px solid #e2e8f0', borderRadius: '5px', background: 'white', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Download size={11} /> CSV
+              </button>
+              <button onClick={handleExportEventsTXT} style={{ height: '26px', padding: '0 10px', fontSize: '10.5px', fontWeight: '600', border: '1px solid #e2e8f0', borderRadius: '5px', background: 'white', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Download size={11} /> TXT
+              </button>
+              {(eventSearchQuery || eventTagFilter !== 'ALL') && (
+                <button onClick={() => { setEventSearchQuery(''); setEventTagFilter('ALL'); }} style={{ height: '26px', padding: '0 8px', fontSize: '10.5px', fontWeight: '600', border: '1px solid #fecaca', borderRadius: '5px', background: '#fff5f5', color: '#dc2626', cursor: 'pointer' }}>
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
-          
-          <div className="events-console">
-            {logs.map((log, index) => {
-              let tag = "INFO";
-              if (log.includes("[THREAT]")) tag = "THREAT";
-              if (log.includes("[TRADE]")) tag = "TRADE";
-              if (log.includes("[SYSTEM]")) tag = "SYSTEM";
-              
+
+          {/* ── Filter Tag Pills ── */}
+          <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: '600', marginRight: '2px' }}>FILTER:</span>
+            {(['ALL', 'THREAT', 'TRADE', 'SYSTEM', 'WS', 'HISTORY', 'WALLET', 'INFO'] as const).map(t => {
+              const meta = t !== 'ALL' ? EVENT_TAG_META[t] : null;
+              const count = t === 'ALL' ? logs.length : (eventTagCounts[t] || 0);
+              const isActive = eventTagFilter === t;
               return (
-                <div key={index} className="event-log-line">
-                  <span className="event-time">[{new Date().toLocaleTimeString()}]</span>
-                  <span className="event-tag">[{tag}]</span>
-                  <span>{log.split(`[${tag}] `)[1] || log}</span>
+                <button key={t} onClick={() => setEventTagFilter(t)} style={{
+                  height: '22px', padding: '0 8px', fontSize: '10px', fontWeight: '700',
+                  borderRadius: '4px', cursor: 'pointer', transition: 'all 0.15s',
+                  border: isActive ? `1.5px solid ${meta?.border || '#475569'}` : '1.5px solid #e2e8f0',
+                  background: isActive ? (meta?.bg || '#f1f5f9') : 'white',
+                  color: isActive ? (meta?.color || '#334155') : '#64748b',
+                  letterSpacing: '0.03em'
+                }}>
+                  {t} {count}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ── Table ── */}
+          <div className="events-console" style={{ flex: 1, minHeight: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 76px 1fr', gap: '10px', padding: '6px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 2, fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' as const, letterSpacing: '0.05em', color: '#94a3b8', borderRadius: '8px 8px 0 0' }}>
+              <span>Time</span><span>Type</span><span>Message</span>
+            </div>
+
+            {filteredEventLogs.length === 0 && (
+              <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>
+                <div style={{ fontSize: '24px', marginBottom: '6px' }}>🔍</div>
+                {logs.length === 0 ? 'No events yet — trigger a simulation or place an order.' : 'No events match your filters.'}
+              </div>
+            )}
+
+            {filteredEventLogs.map((log, index) => {
+              const { tag, time, message } = parseEventLog(log);
+              const meta = EVENT_TAG_META[tag] || EVENT_TAG_META.INFO;
+              return (
+                <div key={index} style={{ display: 'grid', gridTemplateColumns: '80px 76px 1fr', gap: '10px', padding: '5px 12px', borderBottom: '1px solid #f1f5f9', borderLeft: `3px solid ${meta.border}`, backgroundColor: meta.rowBg, alignItems: 'center' }}
+                  onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(0.97)')}
+                  onMouseLeave={e => (e.currentTarget.style.filter = 'none')}
+                >
+                  <span style={{ fontSize: '10.5px', color: '#94a3b8', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{time}</span>
+                  <span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: '800', letterSpacing: '0.07em', padding: '2px 6px', borderRadius: '3px', background: meta.bg, color: meta.color, whiteSpace: 'nowrap' }}>{tag}</span>
+                  </span>
+                  <span style={{ fontSize: '11px', color: tag === 'THREAT' ? '#991b1b' : '#374151', fontWeight: tag === 'THREAT' ? '600' : '400', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={message}>
+                    {eventSearchQuery && message.toLowerCase().includes(eventSearchQuery.toLowerCase()) ? (() => {
+                      const idx = message.toLowerCase().indexOf(eventSearchQuery.toLowerCase());
+                      return <>{message.slice(0, idx)}<mark style={{ background: '#fef08a', color: '#713f12', borderRadius: '2px', padding: '0 1px' }}>{message.slice(idx, idx + eventSearchQuery.length)}</mark>{message.slice(idx + eventSearchQuery.length)}</>;
+                    })() : message}
+                  </span>
                 </div>
               );
             })}
@@ -4134,52 +5312,263 @@ function App() {
           </div>
         </div>
       ) : currentView === 'rca' ? (
-        <div className="rca-container">
-          <div>
-            <h2 style={{ fontSize: '18px', fontWeight: '800' }}>Root Cause Analysis (RCA)</h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '2px' }}>Detailed breakdown and reconstructed sequence of suspicious market actions.</p>
-          </div>
-
-          <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '20px', backgroundColor: 'var(--bg-card)' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#2b6cb0' }}>
-              Root Cause Verdict: Spoofing & Layering sequence on RELIANCE <span className="nse-badge">NSE</span>
-            </h3>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', fontSize: '12px' }}>
-              <div style={{ backgroundColor: 'var(--bg-main)', padding: '14px', borderRadius: '6px' }}>
-                <span style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>RCA Metrics:</span>
-                <ul style={{ listStyleType: 'none', paddingLeft: '0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <li>Trigger Timestamp: <strong>09:47:33 UTC</strong></li>
-                  <li>Order Ingress Speed: <strong>14 per 2.1s</strong></li>
-                  <li>Ratio of Cancels: <strong style={{ color: 'var(--sell-red)' }}>85.7%</strong></li>
-                  <li>Exchange Lag Delta: <strong>+3.2ms</strong></li>
-                  <li>Market Disbalance: <strong style={{ color: 'var(--buy-green)' }}>+14.8%</strong></li>
-                </ul>
-              </div>
-
-              <div>
-                <span style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Chronological Activity Reconstruction:</span>
-                <div style={{ borderLeft: '2px solid #ccc', paddingLeft: '14px', marginLeft: '6px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>09:47:31.022</span>
-                    <strong>Phase 1: Volume Inflation</strong> - Target account submits 8 Buy Limit orders of 1,500 shares each at ₹1290.00 (below LTP).
+        <div className="rca-container" style={{ padding: '20px', backgroundColor: '#f8fafc', height: '100%', overflowY: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div>
+              <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>Root Cause Analysis (RCA)</h2>
+              <p style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>Detailed breakdown and reconstructed sequence of suspicious market actions.</p>
+            </div>
+            
+            {/* Searchable Dropdown for Incidents */}
+            <div className="rca-dropdown-group" style={{ position: 'relative', display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <span style={{ fontSize: '11.5px', color: '#475569', fontWeight: '500' }}>Analyze Incident:</span>
+              <div style={{ position: 'relative' }}>
+                <input 
+                  type="text" 
+                  placeholder="Search & select incident..." 
+                  className="anomaly-control-input"
+                  style={{ width: '280px', paddingRight: '24px', fontSize: '11px', height: '28px', borderRadius: '4px', border: '1px solid #cbd5e1', backgroundColor: 'white' }}
+                  value={rcaSearchQuery}
+                  onChange={e => {
+                    setRcaSearchQuery(e.target.value);
+                    setShowRcaIncidentDropdown(true);
+                  }}
+                  onFocus={() => setShowRcaIncidentDropdown(true)}
+                />
+                <ChevronDown size={14} style={{ position: 'absolute', right: '8px', top: '7px', color: '#64748b', pointerEvents: 'none' }} />
+                
+                {showRcaIncidentDropdown && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '32px',
+                    left: 0,
+                    width: '380px',
+                    backgroundColor: 'white',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                    zIndex: 1000,
+                    maxHeight: '220px',
+                    overflowY: 'auto',
+                    padding: '4px 0'
+                  }}>
+                    {incidents
+                      .filter(inc => {
+                        if (!rcaSearchQuery) return true;
+                        const q = rcaSearchQuery.toLowerCase();
+                        return inc.id.toLowerCase().includes(q) || 
+                               inc.symbol.toLowerCase().includes(q) || 
+                               inc.pattern.toLowerCase().includes(q);
+                      })
+                      .map(inc => (
+                        <div 
+                          key={inc.id}
+                          style={{
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid #f1f5f9',
+                            fontSize: '11.5px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                          onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                          onClick={() => {
+                            setRcaSelectedIncident(inc);
+                            setRcaSearchQuery(`${inc.id} - ${inc.symbol} (${inc.pattern})`);
+                            setShowRcaIncidentDropdown(false);
+                            setRcaLoading(true);
+                            setTimeout(() => setRcaLoading(false), 500);
+                          }}
+                        >
+                          <div>
+                            <strong style={{ color: '#1e293b' }}>{inc.id}</strong>
+                            <span style={{ marginLeft: '6px', color: '#64748b' }}>{inc.symbol} ({inc.pattern})</span>
+                          </div>
+                          <span style={{
+                            fontSize: '9px', padding: '1px 4px', borderRadius: '2px', fontWeight: 'bold',
+                            color: inc.severity === 'CRITICAL' ? '#9b2c2c' : inc.severity === 'HIGH' ? '#c05621' : '#4a5568',
+                            backgroundColor: inc.severity === 'CRITICAL' ? '#fff5f5' : inc.severity === 'HIGH' ? '#fffaf0' : '#f7fafc',
+                          }}>
+                            {inc.severity}
+                          </span>
+                        </div>
+                      ))}
+                    {incidents.filter(inc => {
+                      if (!rcaSearchQuery) return true;
+                      const q = rcaSearchQuery.toLowerCase();
+                      return inc.id.toLowerCase().includes(q) || 
+                             inc.symbol.toLowerCase().includes(q) || 
+                             inc.pattern.toLowerCase().includes(q);
+                    }).length === 0 && (
+                      <div style={{ padding: '10px', textAlign: 'center', color: '#94a3b8', fontSize: '11px' }}>
+                        No incidents found
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>09:47:32.415</span>
-                    <strong>Phase 2: Bid Pressure Disbalance</strong> - Buy volume depth spikes. Algorithmic traders adjust bids upward, shifting LTP up by +₹0.85.
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>09:47:32.910</span>
-                    <strong>Phase 3: Execution</strong> - Target account executes a market Sell order for 4,000 shares at the inflated LTP.
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>09:47:33.400</span>
-                    <strong>Phase 4: Instant Spoof Cancel</strong> - Target account cancels all 8 outstanding Buy Limit orders in under 490ms.
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
+
+          {rcaLoading ? (
+            <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '60px 20px', backgroundColor: 'white', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+              <div style={{ width: '24px', height: '24px', borderRadius: '50%', border: '3px solid #e2e8f0', borderTopColor: '#3182ce', animation: 'spin 1s linear infinite' }} />
+              <span style={{ fontSize: '12px', color: '#64748b' }}>Running AI Forensic Reconstruction...</span>
+            </div>
+          ) : (() => {
+            const activeInc = rcaSelectedIncident || selectedIncident || incidents[0];
+            if (!activeInc) {
+              return (
+                <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '40px', backgroundColor: 'white', textAlign: 'center', color: '#64748b' }}>
+                  No incidents logged. Please trigger some threat simulations from the Injector.
+                </div>
+              );
+            }
+            
+            const pat = activeInc.pattern.toUpperCase();
+            
+            // Build dynamic details based on incident pattern
+            let rcaVerdict = `Potential manipulative behavior detected on ${activeInc.symbol}`;
+            let metrics = {
+              ingress: "12 per 1.5s",
+              cancelRatio: "85.7%",
+              lag: "+1.2ms",
+              disbalance: "+8.4%"
+            };
+            let phases = [
+              { time: "00.0s", title: "Anomaly Inception", text: "Suspicious volume profile starts deviation from average market baseline." },
+              { time: "01.2s", title: "Gateway Load Spike", text: "Heavy traffic detected in network ingress buffer." },
+              { time: "02.5s", title: "Target Execution", text: "Execution occurs on opposite books." },
+              { time: "03.0s", title: "Reversion Check", text: "Trading behavior returns to standard distribution." }
+            ];
+
+            if (pat.includes("SPOOFING")) {
+              rcaVerdict = `Spoofing sequence on ${activeInc.symbol} - Artificial Demand Creation`;
+              metrics = {
+                ingress: "14 per 2.1s",
+                cancelRatio: "85.7%",
+                lag: "+3.2ms",
+                disbalance: "+14.8%"
+              };
+              phases = [
+                { time: "09:47:31.022", title: "Phase 1: Volume Inflation", text: `Target account submits 8 Buy Limit orders below LTP to create artificial depth.` },
+                { time: "09:47:32.415", title: "Phase 2: Bid Pressure Disbalance", text: "Buy volume depth spikes, inducing algorithmic participants to adjust bids upward." },
+                { time: "09:47:32.910", title: "Phase 3: Execution Fill", text: `Target account executes a matching market Sell order at the inflated LTP.` },
+                { time: "09:47:33.400", title: "Phase 4: Instant Spoof Cancel", text: "Target account cancels all outstanding Buy Limit orders in under 490ms." }
+              ];
+            } else if (pat.includes("LAYERING")) {
+              rcaVerdict = `Layering sequence on ${activeInc.symbol} - Price Compression Manipulation`;
+              metrics = {
+                ingress: "22 per 1.8s",
+                cancelRatio: "91.2%",
+                lag: "+4.1ms",
+                disbalance: "-18.2%"
+              };
+              phases = [
+                { time: "11:15:02.110", title: "Phase 1: Quote Layering", text: "Actor submits multiple Sell limit orders at increasing price levels, compounding supply perception." },
+                { time: "11:15:03.450", title: "Phase 2: Price Compression", text: "Bid pressure is compressed downward as buyers react to fake heavy supply." },
+                { time: "11:15:03.920", title: "Phase 3: Favorable Buy Fill", text: "Actor executes a matching market Buy order at the artificially depressed price." },
+                { time: "11:15:04.200", title: "Phase 4: Bulk Layer Cancellation", text: "All layered Sell orders are instantly canceled in a single block network request." }
+              ];
+            } else if (pat.includes("WASH")) {
+              rcaVerdict = `Wash Trading match detected on ${activeInc.symbol} - Self-Matching Accounts`;
+              metrics = {
+                ingress: "8 trades matching",
+                cancelRatio: "5.4%",
+                lag: "+0.4ms",
+                disbalance: "+0.2%"
+              };
+              phases = [
+                { time: "13:22:10.150", title: "Phase 1: Internal Matching Ingress", text: "Accounts under common beneficial ownership submit buy and sell orders with identical price and size." },
+                { time: "13:22:10.160", title: "Phase 2: Execution with No Risk", text: "Orders are crossed internally on the exchange in 10ms with zero change in net market exposure." },
+                { time: "13:22:15.000", title: "Phase 3: Volume & Liquidty Inflation", text: "Instrument trading volume spikes +45% in 5 seconds, triggering algorithmic heatmaps." },
+                { time: "13:22:20.400", title: "Phase 4: Return to Baseline", text: "Spread recovers, leaving retail traders to follow the artificial momentum signal." }
+              ];
+            } else if (pat.includes("QUOTE") || pat.includes("STUFFING")) {
+              rcaVerdict = `Quote Stuffing on ${activeInc.symbol} - Network Ingress Saturation`;
+              metrics = {
+                ingress: "142 per 240ms",
+                cancelRatio: "98.9%",
+                lag: "+18.5ms",
+                disbalance: "+32.1%"
+              };
+              phases = [
+                { time: "14:10:04.100", title: "Phase 1: High-Frequency Injection", text: "HFT script begins flooding the exchange gateway with rapid placement/cancel cycles." },
+                { time: "14:10:04.250", title: "Phase 2: Feed Latency Congestion", text: "Exchange matching gateway experiences queue build-up. Price feed delays rise by 15ms." },
+                { time: "14:10:04.340", title: "Phase 3: Latency Arbitrage Trade", text: "Threat actor executes trades on secondary exchange, exploiting latency differences." },
+                { time: "14:10:05.100", title: "Phase 4: Burst Halting", text: "Script halts quote flood, letting matching engine drain the queue and restore sync." }
+              ];
+            } else if (pat.includes("PUMP") || pat.includes("DUMP")) {
+              rcaVerdict = `Pump & Dump scheme on ${activeInc.symbol} - Coordinated Price Spike`;
+              metrics = {
+                ingress: "Volume Spike 6.2x",
+                cancelRatio: "12.5%",
+                lag: "+0.8ms",
+                disbalance: "+48.2%"
+              };
+              phases = [
+                { time: "15:05:00.000", title: "Phase 1: Coordinated Buying", text: "Multiple accounts launch aggressive buy orders, driving price up +6.2% in a short window." },
+                { time: "15:06:12.000", title: "Phase 2: Retail FOMO Attraction", text: "Social alerts and volume spike scanners draw retail momentum buyers into the stock." },
+                { time: "15:08:45.000", title: "Phase 3: Block Position Dump", text: "Inside entities execute massive block sell orders at peak prices, absorbing retail bids." },
+                { time: "15:09:30.000", title: "Phase 4: Liquidity Collapse", text: "Bids disappear, and stock crashes back down -12% to pre-manipulation levels." }
+              ];
+            }
+
+            return (
+              <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '20px', backgroundColor: 'white', marginTop: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '14px', fontWeight: 'bold', margin: 0, color: '#2b6cb0' }}>
+                    Root Cause Verdict: {rcaVerdict}
+                  </h3>
+                  <span style={{
+                    fontSize: '10px', padding: '2px 8px', borderRadius: '3px', fontWeight: 'bold', color: 'white',
+                    backgroundColor: activeInc.status === 'PENDING' ? '#dd6b20' : activeInc.status === 'ESCALATED' ? '#e53e3e' : '#319795'
+                  }}>
+                    {activeInc.status}
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', fontSize: '12px' }}>
+                  <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px', color: '#475569' }}>RCA Metrics Summary:</span>
+                    <ul style={{ listStyleType: 'none', paddingLeft: '0', display: 'flex', flexDirection: 'column', gap: '10px', margin: 0 }}>
+                      <li style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>Incident ID: <strong style={{ float: 'right' }}>{activeInc.id}</strong></li>
+                      <li style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>Trigger Time: <strong style={{ float: 'right' }}>{formatHumanReadableTime(activeInc.timestamp)}</strong></li>
+                      <li style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>Ingress Speed: <strong style={{ float: 'right' }}>{metrics.ingress}</strong></li>
+                      <li style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>Ratio of Cancels: <strong style={{ float: 'right', color: '#e53e3e' }}>{metrics.cancelRatio}</strong></li>
+                      <li style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>Gateway Lag Delta: <strong style={{ float: 'right' }}>{metrics.lag}</strong></li>
+                      <li style={{ paddingBottom: '4px' }}>Market Disbalance: <strong style={{ float: 'right', color: '#319795' }}>{metrics.disbalance}</strong></li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <span style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px', color: '#475569' }}>Chronological Activity Reconstruction:</span>
+                    <div style={{ borderLeft: '2px solid #cbd5e1', paddingLeft: '16px', marginLeft: '6px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {phases.map((ph, idx) => (
+                        <div key={idx} style={{ position: 'relative' }}>
+                          <div style={{
+                            position: 'absolute',
+                            left: '-22px',
+                            top: '2px',
+                            width: '10px',
+                            height: '10px',
+                            borderRadius: '50%',
+                            backgroundColor: '#3182ce',
+                            border: '2px solid white'
+                          }} />
+                          <span style={{ fontSize: '10px', color: '#64748b', display: 'block' }}>{ph.time}</span>
+                          <strong style={{ color: '#1e293b' }}>{ph.title}</strong>
+                          <p style={{ margin: '2px 0 0 0', color: '#475569', fontSize: '11px', lineHeight: 1.4 }}>{ph.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       ) : currentView === 'simulators' ? (
         <div className="simulators-container">
@@ -4206,7 +5595,141 @@ function App() {
                   </select>
                 </div>
 
-                <div className="anomaly-control-group" style={{ marginTop: '10px' }}>
+                {datasetTimeRange && (() => {
+                  const startTimeMs = new Date(datasetTimeRange.start).getTime();
+                  const endTimeMs = new Date(datasetTimeRange.end).getTime();
+                  const currentTimeMs = currentPlaybackTime 
+                    ? new Date(currentPlaybackTime).getTime() 
+                    : (lastStreamedTimestampRef.current 
+                        ? new Date(lastStreamedTimestampRef.current).getTime() 
+                        : startTimeMs);
+                  const validCurrentTimeMs = Math.max(startTimeMs, Math.min(currentTimeMs, endTimeMs));
+                  
+                  // Calculate progress percentage
+                  const progressPct = ((validCurrentTimeMs - startTimeMs) / Math.max(1, endTimeMs - startTimeMs)) * 100;
+                  
+                  return (
+                    <div style={{
+                      backgroundColor: 'white',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      padding: '14px',
+                      marginTop: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
+                    }}>
+                      {/* Top Header Status */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor: isReplaying ? '#10b981' : '#ef4444',
+                            display: 'inline-block'
+                          }} />
+                          <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-muted)' }}>
+                            STATUS: <span style={{ color: isReplaying ? '#10b981' : '#ef4444' }}>{isReplaying ? 'ACTIVE' : 'PAUSED'}</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Large Glowing Time Display */}
+                      <div style={{
+                        textAlign: 'center',
+                        padding: '10px 0',
+                        backgroundColor: '#f8fafc',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)'
+                      }}>
+                        <div style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                          Current Replay Position (IST)
+                        </div>
+                        <div style={{
+                          fontSize: '14px',
+                          fontFamily: 'monospace',
+                          fontWeight: 'bold',
+                          color: 'var(--text-main)'
+                        }}>
+                          {formatHumanReadableTime(currentPlaybackTime || lastStreamedTimestampRef.current || datasetTimeRange.start)}
+                        </div>
+                      </div>
+
+                      {/* Progress Seek Slider */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ position: 'relative', width: '100%', display: 'flex', alignItems: 'center' }}>
+                          <input 
+                            type="range"
+                            min={startTimeMs}
+                            max={endTimeMs}
+                            value={validCurrentTimeMs}
+                            onInput={(e) => {
+                              const val = parseInt(e.currentTarget.value);
+                              setCurrentPlaybackTime(new Date(val).toISOString());
+                            }}
+                            onMouseUp={(e) => {
+                              const val = parseInt(e.currentTarget.value);
+                              handleJumpToTime(new Date(val).toISOString());
+                            }}
+                            onTouchEnd={(e) => {
+                              const val = parseInt(e.currentTarget.value);
+                              handleJumpToTime(new Date(val).toISOString());
+                            }}
+                            onKeyUp={(e) => {
+                              if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                                const val = parseInt(e.currentTarget.value);
+                                handleJumpToTime(new Date(val).toISOString());
+                              }
+                            }}
+                            style={{
+                              width: '100%',
+                              height: '6px',
+                              borderRadius: '3px',
+                              background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${progressPct}%, #e2e8f0 ${progressPct}%, #e2e8f0 100%)`,
+                              outline: 'none',
+                              cursor: 'pointer',
+                              WebkitAppearance: 'none'
+                            }}
+                            className="replay-slider"
+                          />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)' }}>
+                          <div><b>Start (IST):</b> {formatHumanReadableTime(datasetTimeRange.start)}</div>
+                          <div><b>End (IST):</b> {formatHumanReadableTime(datasetTimeRange.end)}</div>
+                        </div>
+                      </div>
+
+                      {/* Control Buttons Row */}
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <button
+                          onClick={handleTogglePlayPause}
+                          style={{
+                            flex: 1,
+                            height: '32px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            backgroundColor: '#8b5cf6',
+                            color: 'white',
+                            fontWeight: 'bold',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                          }}
+                        >
+                          {isReplaying ? '⏸ Pause' : '▶ Play'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="anomaly-control-group" style={{ marginTop: '5px' }}>
                   <span className="anomaly-control-label">Upload Custom Dataset File (CSV)</span>
                   <input 
                     type="file" 
@@ -4219,7 +5742,7 @@ function App() {
                   </p>
                 </div>
 
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '5px' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Replay Speed Multiplier:</span>
                   <div className="speed-buttons">
                     <button className={`speed-btn ${replaySpeed === 1 ? 'active' : ''}`} onClick={() => setReplaySpeed(1)}>1x</button>
@@ -4297,7 +5820,11 @@ function App() {
                     <input 
                       type="checkbox" 
                       checked={telegramConfig.enabled} 
-                      onChange={e => setTelegramConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                      onChange={e => {
+                        const newVal = e.target.checked;
+                        setTelegramConfig(prev => ({ ...prev, enabled: newVal }));
+                        saveTelegramConfig(newVal);
+                      }}
                     />
                     <span>{telegramConfig.enabled ? "Active" : "Disabled"}</span>
                   </label>
@@ -4323,13 +5850,22 @@ function App() {
                       onChange={e => setTelegramConfig(prev => ({ ...prev, chatId: e.target.value }))}
                     />
                   </div>
-                  <button 
-                    className="add-funds-btn" 
-                    style={{ alignSelf: 'flex-start', marginTop: '4px', fontSize: '11px', padding: '4px 10px' }}
-                    onClick={() => triggerToast("Telegram connection test sent. Response: OK (200)")}
-                  >
-                    Test Connection
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                    <button 
+                      className="add-funds-btn" 
+                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                      onClick={() => saveTelegramConfig()}
+                    >
+                      Save Settings
+                    </button>
+                    <button 
+                      className="add-funds-btn" 
+                      style={{ fontSize: '11px', padding: '4px 10px', backgroundColor: '#64748b' }}
+                      onClick={testTelegramConnection}
+                    >
+                      Test Connection
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -4347,7 +5883,11 @@ function App() {
                     <input 
                       type="checkbox" 
                       checked={smtpConfig.enabled} 
-                      onChange={e => setSmtpConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                      onChange={e => {
+                        const newVal = e.target.checked;
+                        setSmtpConfig(prev => ({ ...prev, enabled: newVal }));
+                        saveSmtpConfig(newVal);
+                      }}
                     />
                     <span>{smtpConfig.enabled ? "Active" : "Disabled"}</span>
                   </label>
@@ -4407,13 +5947,22 @@ function App() {
                       />
                     </div>
                   </div>
-                  <button 
-                    className="add-funds-btn" 
-                    style={{ alignSelf: 'flex-start', marginTop: '4px', fontSize: '11px', padding: '4px 10px' }}
-                    onClick={() => triggerToast("SMTP email test queued. Output: Sent successfully")}
-                  >
-                    Test Connection
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                    <button 
+                      className="add-funds-btn" 
+                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                      onClick={() => saveSmtpConfig()}
+                    >
+                      Save Settings
+                    </button>
+                    <button 
+                      className="add-funds-btn" 
+                      style={{ fontSize: '11px', padding: '4px 10px', backgroundColor: '#64748b' }}
+                      onClick={testSmtpConnection}
+                    >
+                      Test Connection
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -4431,7 +5980,11 @@ function App() {
                     <input 
                       type="checkbox" 
                       checked={jiraConfig.enabled} 
-                      onChange={e => setJiraConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                      onChange={e => {
+                        const newVal = e.target.checked;
+                        setJiraConfig(prev => ({ ...prev, enabled: newVal }));
+                        saveJiraConfig(newVal);
+                      }}
                     />
                     <span>{jiraConfig.enabled ? "Active" : "Disabled"}</span>
                   </label>
@@ -4479,13 +6032,22 @@ function App() {
                       onChange={e => setJiraConfig(prev => ({ ...prev, token: e.target.value }))}
                     />
                   </div>
-                  <button 
-                    className="add-funds-btn" 
-                    style={{ alignSelf: 'flex-start', marginTop: '4px', fontSize: '11px', padding: '4px 10px' }}
-                    onClick={() => triggerToast("Jira ticket creation test succeeded: ISSUE-9284Created")}
-                  >
-                    Test Connection
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                    <button 
+                      className="add-funds-btn" 
+                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                      onClick={() => saveJiraConfig()}
+                    >
+                      Save Settings
+                    </button>
+                    <button 
+                      className="add-funds-btn" 
+                      style={{ fontSize: '11px', padding: '4px 10px', backgroundColor: '#64748b' }}
+                      onClick={testJiraConnection}
+                    >
+                      Test Connection
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -4503,7 +6065,11 @@ function App() {
                     <input 
                       type="checkbox" 
                       checked={teamsConfig.enabled} 
-                      onChange={e => setTeamsConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                      onChange={e => {
+                        const newVal = e.target.checked;
+                        setTeamsConfig(prev => ({ ...prev, enabled: newVal }));
+                        saveTeamsConfig(newVal);
+                      }}
                     />
                     <span>{teamsConfig.enabled ? "Active" : "Disabled"}</span>
                   </label>
@@ -4529,13 +6095,22 @@ function App() {
                       onChange={e => setTeamsConfig(prev => ({ ...prev, channelName: e.target.value }))}
                     />
                   </div>
-                  <button 
-                    className="add-funds-btn" 
-                    style={{ alignSelf: 'flex-start', marginTop: '4px', fontSize: '11px', padding: '4px 10px' }}
-                    onClick={() => triggerToast("Microsoft Teams webhook message sent successfully.")}
-                  >
-                    Test Webhook
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                    <button 
+                      className="add-funds-btn" 
+                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                      onClick={() => saveTeamsConfig()}
+                    >
+                      Save Settings
+                    </button>
+                    <button 
+                      className="add-funds-btn" 
+                      style={{ fontSize: '11px', padding: '4px 10px', backgroundColor: '#64748b' }}
+                      onClick={testTeamsConnection}
+                    >
+                      Test Webhook
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -4550,13 +6125,35 @@ function App() {
             </div>
             
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <input 
+                type="file" 
+                id="policy-import-input" 
+                accept=".json" 
+                style={{ display: 'none' }} 
+                onChange={handleImportPolicies} 
+              />
+              <button 
+                className="add-funds-btn" 
+                style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#edf2f7', color: '#475569', border: '1px solid #cbd5e1' }}
+                onClick={() => document.getElementById("policy-import-input")?.click()}
+              >
+                <Upload size={12} /> Import
+              </button>
+              <button 
+                className="add-funds-btn" 
+                style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#edf2f7', color: '#475569', border: '1px solid #cbd5e1' }}
+                onClick={() => exportPolicies(policies)}
+              >
+                <Download size={12} /> Export All
+              </button>
+
               {/* Search input */}
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                 <input 
                   type="text" 
                   placeholder="Search rules..." 
                   className="anomaly-control-input"
-                  style={{ width: '220px', paddingLeft: '28px', fontSize: '11px', height: '28px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                  style={{ width: '180px', paddingLeft: '28px', fontSize: '11px', height: '28px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                   value={policySearch}
                   onChange={e => setPolicySearch(e.target.value)}
                 />
@@ -4581,10 +6178,74 @@ function App() {
             </div>
           </div>
 
+          {/* Bulk Actions and Select All Bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f1f5f9', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '4px', marginBottom: '10px', fontSize: '11.5px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input 
+                type="checkbox" 
+                checked={policies.length > 0 && selectedPolicyIds.length === policies.length}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedPolicyIds(policies.map(p => p.id));
+                  } else {
+                    setSelectedPolicyIds([]);
+                  }
+                }}
+              />
+              <span style={{ color: '#475569', fontWeight: '500' }}>
+                {selectedPolicyIds.length} of {policies.length} selected
+              </span>
+            </div>
+            
+            {selectedPolicyIds.length > 0 && (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  className="add-funds-btn" 
+                  style={{ padding: '4px 8px', fontSize: '11px', backgroundColor: '#fed7d7', color: '#9b2c2c', border: '1px solid #feb2b2' }}
+                  onClick={() => {
+                    if (window.confirm(`Are you sure you want to delete ${selectedPolicyIds.length} policy rules?`)) {
+                      fetch(`${BACKEND_URL}/api/v1/detect/policies/bulk-delete`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids: selectedPolicyIds })
+                      })
+                      .then(res => {
+                        if (!res.ok) throw new Error("API error");
+                        return res.json();
+                      })
+                      .then(() => {
+                        refreshPoliciesList();
+                        triggerToast(`Deleted ${selectedPolicyIds.length} policy rules.`);
+                        setSelectedPolicyIds([]);
+                      })
+                      .catch(err => {
+                        console.error("Failed to bulk delete policies:", err);
+                        triggerToast("Failed to delete policies from database.");
+                      });
+                    }
+                  }}
+                >
+                  <Trash size={11} style={{ marginRight: '3px', display: 'inline' }} /> Delete Selected
+                </button>
+                <button 
+                  className="add-funds-btn" 
+                  style={{ padding: '4px 8px', fontSize: '11px', backgroundColor: '#edf2f7', color: '#475569', border: '1px solid #cbd5e1' }}
+                  onClick={() => {
+                    const selected = policies.filter(p => selectedPolicyIds.includes(p.id));
+                    exportPolicies(selected);
+                  }}
+                >
+                  <Download size={11} style={{ marginRight: '3px', display: 'inline' }} /> Export Selected
+                </button>
+              </div>
+            )}
+          </div>
+
           <div style={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', textAlign: 'left' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: 'bold' }}>
+                  <th style={{ padding: '10px 14px', width: '40px' }}>Select</th>
                   <th style={{ padding: '10px 14px' }}>Rule ID</th>
                   <th style={{ padding: '10px 14px' }}>Rule Name</th>
                   <th style={{ padding: '10px 14px' }}>Target Pattern</th>
@@ -4605,62 +6266,130 @@ function App() {
                            p.action.toLowerCase().includes(q) ||
                            p.severity.toLowerCase().includes(q);
                   })
-                  .map(policy => (
-                    <tr key={policy.id} style={{ borderBottom: '1px solid #f1f5f9', color: '#334155' }}>
-                      <td style={{ padding: '10px 14px', fontWeight: 'bold' }}>{policy.id}</td>
-                      <td style={{ padding: '10px 14px' }}>{policy.name}</td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '3px', fontWeight: 'bold', backgroundColor: '#f1f5f9' }}>
-                          {policy.pattern}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span style={{
-                          fontSize: '9.5px', padding: '2px 5px', borderRadius: '2px', fontWeight: 'bold',
-                          color: policy.severity === 'CRITICAL' ? '#9b2c2c' : policy.severity === 'HIGH' ? '#c05621' : policy.severity === 'MEDIUM' ? '#dd6b20' : '#4a5568',
-                          backgroundColor: policy.severity === 'CRITICAL' ? '#fff5f5' : policy.severity === 'HIGH' ? '#fffaf0' : policy.severity === 'MEDIUM' ? '#fffaf0' : '#f7fafc',
-                        }}>
-                          {policy.severity}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 14px', color: '#2b6cb0', fontWeight: '500' }}>
-                        {policy.action.replace('_', ' ')}
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          {policy.channels.map(ch => (
-                            <span key={ch} style={{ fontSize: '9px', backgroundColor: '#edf2f7', padding: '1px 4px', borderRadius: '2px' }}>{ch}</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <label className="switch" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  .map(policy => {
+                    const isSelected = selectedPolicyIds.includes(policy.id);
+                    return (
+                      <tr key={policy.id} style={{ borderBottom: '1px solid #f1f5f9', color: '#334155', backgroundColor: isSelected ? '#f8fafc' : 'transparent' }}>
+                        <td style={{ padding: '10px 14px' }}>
                           <input 
                             type="checkbox" 
-                            checked={policy.enabled} 
+                            checked={isSelected}
                             onChange={() => {
-                              setPolicies(prev => prev.map(p => p.id === policy.id ? { ...p, enabled: !p.enabled } : p));
-                              triggerToast(`Policy ${policy.id} status updated.`);
+                              if (isSelected) {
+                                setSelectedPolicyIds(prev => prev.filter(id => id !== policy.id));
+                              } else {
+                                setSelectedPolicyIds(prev => [...prev, policy.id]);
+                              }
                             }}
                           />
-                          <span style={{ fontSize: '10.5px', color: policy.enabled ? '#1a73e8' : '#94a3b8' }}>
-                            {policy.enabled ? "Active" : "Paused"}
+                        </td>
+                        <td style={{ padding: '10px 14px', fontWeight: 'bold' }}>{policy.id}</td>
+                        <td style={{ padding: '10px 14px' }}>{policy.name}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '3px', fontWeight: 'bold', backgroundColor: '#f1f5f9' }}>
+                            {policy.pattern}
                           </span>
-                        </label>
-                      </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                        <button 
-                          style={{ border: 'none', background: 'none', color: '#e53e3e', cursor: 'pointer', fontSize: '11px', padding: '2px' }}
-                          onClick={() => {
-                            setPolicies(prev => prev.filter(p => p.id !== policy.id));
-                            triggerToast(`Policy ${policy.id} deleted successfully.`);
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                ))}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{
+                            fontSize: '9.5px', padding: '2px 5px', borderRadius: '2px', fontWeight: 'bold',
+                            color: policy.severity === 'CRITICAL' ? '#9b2c2c' : policy.severity === 'HIGH' ? '#c05621' : policy.severity === 'MEDIUM' ? '#dd6b20' : '#4a5568',
+                            backgroundColor: policy.severity === 'CRITICAL' ? '#fff5f5' : policy.severity === 'HIGH' ? '#fffaf0' : policy.severity === 'MEDIUM' ? '#fffaf0' : '#f7fafc',
+                          }}>
+                            {policy.severity}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', color: '#2b6cb0', fontWeight: '500' }}>
+                          {policy.action.replace('_', ' ')}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            {policy.channels.map(ch => (
+                              <span key={ch} style={{ fontSize: '9px', backgroundColor: '#edf2f7', padding: '1px 4px', borderRadius: '2px' }}>{ch}</span>
+                            ))}
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <label className="switch" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={policy.enabled} 
+                              onChange={() => {
+                                const updatedPolicy = { ...policy, enabled: !policy.enabled };
+                                fetch(`${BACKEND_URL}/api/v1/detect/policies/${policy.id}`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify(updatedPolicy)
+                                })
+                                .then(res => {
+                                  if (!res.ok) throw new Error("API error");
+                                  return res.json();
+                                })
+                                .then(() => {
+                                  refreshPoliciesList();
+                                  triggerToast(`Policy ${policy.id} status updated.`);
+                                })
+                                .catch(err => {
+                                  console.error("Failed to toggle policy status:", err);
+                                  triggerToast("Failed to toggle policy status in database.");
+                                });
+                              }}
+                            />
+                            <span style={{ fontSize: '10.5px', color: policy.enabled ? '#1a73e8' : '#94a3b8' }}>
+                              {policy.enabled ? "Active" : "Paused"}
+                            </span>
+                          </label>
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <button 
+                              style={{ border: 'none', background: 'none', color: '#475569', cursor: 'pointer', padding: '2px' }}
+                              title="Export Rule"
+                              onClick={() => exportPolicies([policy])}
+                            >
+                              <Download size={13} />
+                            </button>
+                            <button 
+                              style={{ border: 'none', background: 'none', color: '#3182ce', cursor: 'pointer', padding: '2px' }}
+                              title="Edit Rule"
+                              onClick={() => {
+                                setEditingPolicy(policy);
+                                setShowEditPolicyModal(true);
+                              }}
+                            >
+                              <Edit size={13} />
+                            </button>
+                            <button 
+                              style={{ border: 'none', background: 'none', color: '#e53e3e', cursor: 'pointer', padding: '2px' }}
+                              title="Delete Rule"
+                              onClick={() => {
+                                if (window.confirm(`Are you sure you want to delete policy ${policy.id}?`)) {
+                                  fetch(`${BACKEND_URL}/api/v1/detect/policies/${policy.id}`, {
+                                    method: 'DELETE'
+                                  })
+                                  .then(res => {
+                                    if (!res.ok) throw new Error("API error");
+                                    return res.json();
+                                  })
+                                  .then(() => {
+                                    refreshPoliciesList();
+                                    setSelectedPolicyIds(prev => prev.filter(id => id !== policy.id));
+                                    triggerToast(`Policy ${policy.id} deleted successfully.`);
+                                  })
+                                  .catch(err => {
+                                    console.error("Failed to delete policy:", err);
+                                    triggerToast("Failed to delete policy from database.");
+                                  });
+                                }
+                              }}
+                            >
+                              <Trash size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>
@@ -4844,14 +6573,617 @@ function App() {
                     channels: newPolicyChannels,
                     enabled: true
                   };
-                  setPolicies(prev => [...prev, rule]);
-                  triggerToast(`Created policy rule: ${newId}`);
-                  setShowAddPolicyModal(false);
-                  setNewPolicyName("");
-                  setNewPolicyChannels(["Telegram"]);
+                  fetch(`${BACKEND_URL}/api/v1/detect/policies`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(rule)
+                  })
+                  .then(res => {
+                    if (!res.ok) throw new Error("API error");
+                    return res.json();
+                  })
+                  .then(() => {
+                    refreshPoliciesList();
+                    triggerToast(`Created policy rule: ${newId}`);
+                    setShowAddPolicyModal(false);
+                    setNewPolicyName("");
+                    setNewPolicyChannels(["Telegram"]);
+                  })
+                  .catch(err => {
+                    console.error("Failed to create policy:", err);
+                    triggerToast("Failed to create policy in database.");
+                  });
                 }}
               >
                 Create Policy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* System Settings Modal Dialog */}
+      {showSettingsModal && (
+        <div className="modal-overlay" onClick={() => setShowSettingsModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ width: '420px', borderRadius: '6px' }}>
+            <div className="modal-header">
+              <span className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Settings size={15} /> System &amp; AI Governance Settings
+              </span>
+              <button className="modal-close-btn" onClick={() => setShowSettingsModal(false)}><X size={16} /></button>
+            </div>
+            
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px 20px' }}>
+              
+              {/* Profile section */}
+              <div>
+                <h4 style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', margin: '0 0 8px 0', fontWeight: '800' }}>Compliance Profile</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div>
+                    <span className="input-label" style={{ fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '3px' }}>Officer Name</span>
+                    <input 
+                      type="text" 
+                      className="modal-input" 
+                      style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
+                      value={profileName}
+                      onChange={e => setProfileName(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <span className="input-label" style={{ fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '3px' }}>Role / Designation</span>
+                    <input 
+                      type="text" 
+                      className="modal-input" 
+                      style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
+                      value={profileRole}
+                      onChange={e => setProfileRole(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <hr style={{ border: 0, borderTop: '1px solid #f1f5f9', margin: '4px 0' }} />
+
+              {/* LLM section */}
+              <div>
+                <h4 style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', margin: '0 0 8px 0', fontWeight: '800' }}>AI Triage Model Settings</h4>
+                
+                <span className="input-label" style={{ fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>Select LLM Provider</span>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                  {/* Anthropic Card */}
+                  <div 
+                    onClick={() => setLlmProvider('Anthropic Claude')}
+                    style={{
+                      border: llmProvider === 'Anthropic Claude' ? '2px solid #f97316' : '1.5px solid #e2e8f0',
+                      borderRadius: '6px',
+                      padding: '10px',
+                      cursor: 'pointer',
+                      backgroundColor: llmProvider === 'Anthropic Claude' ? '#fffaf8' : '#ffffff',
+                      transition: 'all 0.2s',
+                      position: 'relative'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="#f97316" style={{ flexShrink: 0 }}>
+                        <path d="M12 2L2 22h4.5l2-4.5h7l2 4.5H22L12 2zm-1 12l2.5-6 2.5 6h-5z" />
+                      </svg>
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#1e293b' }}>Anthropic</span>
+                    </div>
+                    <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Claude 3.5 Sonnet</div>
+                    {llmProvider === 'Anthropic Claude' && (
+                      <span style={{ position: 'absolute', top: '6px', right: '6px', backgroundColor: '#f97316', color: 'white', borderRadius: '50%', width: '12px', height: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px' }}>
+                        <Check size={8} strokeWidth={3} />
+                      </span>
+                    )}
+                  </div>
+
+                  {/* OpenAI Card */}
+                  <div 
+                    onClick={() => setLlmProvider('OpenAI GPT')}
+                    style={{
+                      border: llmProvider === 'OpenAI GPT' ? '2px solid #10b981' : '1.5px solid #e2e8f0',
+                      borderRadius: '6px',
+                      padding: '10px',
+                      cursor: 'pointer',
+                      backgroundColor: llmProvider === 'OpenAI GPT' ? '#f0fdf4' : '#ffffff',
+                      transition: 'all 0.2s',
+                      position: 'relative'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="#10b981" style={{ flexShrink: 0 }}>
+                        <path d="M20.5 9.3c.3-.8.3-1.6 0-2.3-.4-.8-1-1.4-1.9-1.6-.3-.1-.7-.1-1 0-.4-.7-.9-1.2-1.6-1.5-.8-.4-1.7-.4-2.5-.1-.3-.3-.7-.5-1.1-.6-.9-.3-1.8-.1-2.6.4-.6.4-1.1.9-1.4 1.6h-.1c-.8-.2-1.6-.1-2.3.2-.8.4-1.4 1.1-1.6 2-.1.3-.1.7 0 1-.7.4-1.2.9-1.5 1.6-.4.8-.4 1.7-.1 2.5.3.3.5.7.6 1.1-.1.9.1 1.8.6 2.6.4.6.9 1.1 1.6 1.4v.1c-.2.8-.1 1.6.2 2.3.4.8 1.1 1.4 2 1.6.3.1.7.1 1 0 .4.7.9 1.2 1.6 1.5.8.4 1.7.4 2.5.1.3.3.7.5 1.1.6.9.3 1.8.1 2.6-.4.6-.4 1.1-.9 1.4-1.6h.1c.8.2 1.6.1 2.3-.2.8-.4 1.4-1.1 1.6-2 .1-.3.1-.7 0-1 .7-.4 1.2-.9 1.5-1.6.4-.8.4-1.7.1-2.5-.3-.3-.5-.7-.6-1.1.1-.9-.1-1.8-.6-2.6-.3-.6-.8-1.1-1.5-1.4zm-7.6 11.2c-.4.2-.9.3-1.4.3-.5 0-1-.1-1.4-.4l5-2.9 1.4.8-3.6 2.2zm-5.7-2.6c-.2-.4-.3-.9-.3-1.4 0-.5.1-1 .4-1.4l5 2.9v1.6l-5.1-3.1zm-1.8-6.1c.1-.5.3-.9.6-1.3.3-.4.7-.6 1.2-.8l5 2.9-1.4.8-5.4-1.6zm4.1-4.8c.4-.2.9-.3 1.4-.3.5 0 1 .1 1.4.4l-5 2.9-1.4-.8 3.6-2.2zm5.7 2.6c.2.4.3.9.3 1.4 0 .5-.1 1-.4 1.4l-5-2.9V6.6l5.1 3.1zm1.8 6.1c-.1.5-.3.9-.6 1.3-.3.4-.7.6-1.2.8l-5-2.9 1.4-.8 5.4 1.6zM12 13.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z" />
+                      </svg>
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#1e293b' }}>OpenAI</span>
+                    </div>
+                    <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>GPT-4o Engine</div>
+                    {llmProvider === 'OpenAI GPT' && (
+                      <span style={{ position: 'absolute', top: '6px', right: '6px', backgroundColor: '#10b981', color: 'white', borderRadius: '50%', width: '12px', height: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px' }}>
+                        <Check size={8} strokeWidth={3} />
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* API Key inputs */}
+                {llmProvider === 'Anthropic Claude' ? (
+                  <div>
+                    <span className="input-label" style={{ fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '3px' }}>Anthropic API Key</span>
+                    <div style={{ position: 'relative' }}>
+                      <input 
+                        type={showAnthropicKey ? "text" : "password"} 
+                        className="modal-input" 
+                        style={{ fontSize: '11.5px', height: '28px', padding: '4px 30px 4px 8px', letterSpacing: showAnthropicKey ? 'normal' : '0.15em' }}
+                        placeholder="sk-ant-..."
+                        value={anthropicApiKey}
+                        onChange={e => setAnthropicApiKey(e.target.value)}
+                      />
+                      <button 
+                        onClick={() => setShowAnthropicKey(prev => !prev)}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#94a3b8',
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        {showAnthropicKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="input-label" style={{ fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '3px' }}>OpenAI API Key</span>
+                    <div style={{ position: 'relative' }}>
+                      <input 
+                        type={showOpenaiKey ? "text" : "password"} 
+                        className="modal-input" 
+                        style={{ fontSize: '11.5px', height: '28px', padding: '4px 30px 4px 8px', letterSpacing: showOpenaiKey ? 'normal' : '0.15em' }}
+                        placeholder="sk-..."
+                        value={openaiApiKey}
+                        onChange={e => setOpenaiApiKey(e.target.value)}
+                      />
+                      <button 
+                        onClick={() => setShowOpenaiKey(prev => !prev)}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#94a3b8',
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        {showOpenaiKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                <p style={{ fontSize: '9.5px', color: '#94a3b8', marginTop: '6px', lineHeight: '1.3' }}>
+                  Your API key is stored locally in your browser's localStorage and is only used to connect to the triage endpoints.
+                </p>
+              </div>
+
+            </div>
+
+            <div className="modal-footer" style={{ padding: '10px 14px' }}>
+              <button 
+                className="modal-btn secondary" 
+                style={{ fontSize: '11px', padding: '4px 10px' }} 
+                onClick={() => setShowSettingsModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="modal-btn primary" 
+                style={{ fontSize: '11px', padding: '4px 10px' }} 
+                onClick={() => {
+                  localStorage.setItem("tradeSurveillance_profileName", profileName);
+                  localStorage.setItem("tradeSurveillance_profileRole", profileRole);
+                  localStorage.setItem("tradeSurveillance_llmProvider", llmProvider);
+                  localStorage.setItem("tradeSurveillance_anthropicApiKey", anthropicApiKey);
+                  localStorage.setItem("tradeSurveillance_openaiApiKey", openaiApiKey);
+                  setShowSettingsModal(false);
+                  triggerToast("System settings saved successfully!");
+                }}
+              >
+                Save Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trader CRUD Modal Dialog */}
+      {showTraderCRUDModal && (
+        <div className="modal-overlay" onClick={() => setShowTraderCRUDModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ width: '550px', borderRadius: '6px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="modal-header">
+              <span className="modal-title">
+                {crudModalMode === 'list' ? 'Trader Profiles Directory' :
+                 crudModalMode === 'add' ? 'Create Trader Profile' : 'Edit Trader Profile'}
+              </span>
+              <button className="modal-close-btn" onClick={() => setShowTraderCRUDModal(false)}><X size={16} /></button>
+            </div>
+            
+            <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {crudModalMode === 'list' && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>Manage trader accounts authorized for high-frequency or retail market participation.</p>
+                    <button
+                      className="add-funds-btn"
+                      style={{ padding: '4px 10px', fontSize: '11px' }}
+                      onClick={() => {
+                        setNewTraderId("");
+                        setNewTraderName("");
+                        setNewTraderRole("");
+                        setNewTraderSector("");
+                        setNewTraderStatus("ACTIVE");
+                        setCrudModalMode('add');
+                      }}
+                    >
+                      <Plus size={11} style={{ marginRight: '2px', display: 'inline' }} /> Add Trader
+                    </button>
+                  </div>
+                  
+                  <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: 'bold' }}>
+                          <th style={{ padding: '8px 10px' }}>Trader ID</th>
+                          <th style={{ padding: '8px 10px' }}>Name</th>
+                          <th style={{ padding: '8px 10px' }}>Role</th>
+                          <th style={{ padding: '8px 10px' }}>Sector</th>
+                          <th style={{ padding: '8px 10px' }}>Status</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'right' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tradersList.map(t => (
+                          <tr key={t.trader_id} style={{ borderBottom: '1px solid #f1f5f9', color: '#334155' }}>
+                            <td style={{ padding: '8px 10px', fontWeight: 'bold' }}>{t.trader_id}</td>
+                            <td style={{ padding: '8px 10px' }}>{t.name}</td>
+                            <td style={{ padding: '8px 10px' }}>{t.role}</td>
+                            <td style={{ padding: '8px 10px' }}>{t.sector}</td>
+                            <td style={{ padding: '8px 10px' }}>
+                              <span style={{
+                                fontSize: '10px',
+                                padding: '2px 6px',
+                                borderRadius: '3px',
+                                fontWeight: 'bold',
+                                color: t.status === 'ACTIVE' ? '#234e52' : '#742a2a',
+                                backgroundColor: t.status === 'ACTIVE' ? '#e6fffa' : '#fff5f5'
+                              }}>
+                                {t.status || 'ACTIVE'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px 10px', textAlign: 'right', display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                              <button
+                                style={{ border: 'none', background: 'none', color: '#3182ce', cursor: 'pointer', fontSize: '11px', padding: '2px' }}
+                                onClick={() => {
+                                  setEditingTrader(t);
+                                  setNewTraderId(t.trader_id);
+                                  setNewTraderName(t.name);
+                                  setNewTraderRole(t.role);
+                                  setNewTraderSector(t.sector);
+                                  setNewTraderStatus(t.status || "ACTIVE");
+                                  setCrudModalMode('edit');
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                style={{ border: 'none', background: 'none', color: '#e53e3e', cursor: 'pointer', fontSize: '11px', padding: '2px' }}
+                                onClick={() => {
+                                  if (window.confirm(`Are you sure you want to delete trader ${t.name}?`)) {
+                                    fetch(`${BACKEND_URL}/api/v1/detect/traders/${t.trader_id}`, { method: 'DELETE' })
+                                      .then(res => res.json())
+                                      .then(() => {
+                                        triggerToast(`Trader ${t.name} deleted.`);
+                                        refreshTradersList();
+                                      })
+                                      .catch(() => {
+                                        setTradersList(prev => prev.filter(x => x.trader_id !== t.trader_id));
+                                        triggerToast(`Trader ${t.name} deleted locally.`);
+                                      });
+                                  }
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+              
+              {(crudModalMode === 'add' || crudModalMode === 'edit') && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {editingTrader && (
+                    <div style={{ fontSize: '11px', color: '#64748b' }}>
+                      Modifying Trader ID: <strong style={{ color: '#1e293b' }}>{editingTrader.trader_id}</strong>
+                    </div>
+                  )}
+                  <div>
+                    <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Trader ID</span>
+                    <input
+                      type="text"
+                      className="modal-input"
+                      style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
+                      disabled={crudModalMode === 'edit'}
+                      placeholder="e.g. TRADER_999"
+                      value={newTraderId}
+                      onChange={e => setNewTraderId(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Trader Name</span>
+                    <input
+                      type="text"
+                      className="modal-input"
+                      style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
+                      placeholder="e.g. Rahul Verma"
+                      value={newTraderName}
+                      onChange={e => setNewTraderName(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Trader Role</span>
+                    <input
+                      type="text"
+                      className="modal-input"
+                      style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
+                      placeholder="e.g. Arbitrage Specialist"
+                      value={newTraderRole}
+                      onChange={e => setNewTraderRole(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Authorized Sector</span>
+                    <input
+                      type="text"
+                      className="modal-input"
+                      style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
+                      placeholder="e.g. Tech/Energy"
+                      value={newTraderSector}
+                      onChange={e => setNewTraderSector(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Account Status</span>
+                    <select
+                      className="modal-input"
+                      style={{ fontSize: '11px', height: '28px', padding: '0 8px', backgroundColor: 'white' }}
+                      value={newTraderStatus}
+                      onChange={e => setNewTraderStatus(e.target.value)}
+                    >
+                      <option value="ACTIVE">ACTIVE</option>
+                      <option value="SUSPENDED">SUSPENDED</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="modal-footer" style={{ padding: '10px 14px' }}>
+              {crudModalMode === 'list' ? (
+                <button className="modal-btn secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => setShowTraderCRUDModal(false)}>Close</button>
+              ) : (
+                <>
+                  <button className="modal-btn secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => setCrudModalMode('list')}>Back to Directory</button>
+                  <button
+                    className="modal-btn primary"
+                    style={{ fontSize: '11px', padding: '4px 10px' }}
+                    onClick={() => {
+                      if (!newTraderId.trim() || !newTraderName.trim()) {
+                        triggerToast("Trader ID and Name are required.");
+                        return;
+                      }
+                      if (crudModalMode === 'add') {
+                        fetch(`${BACKEND_URL}/api/v1/detect/traders`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ trader_id: newTraderId, name: newTraderName, role: newTraderRole, sector: newTraderSector, status: newTraderStatus })
+                        })
+                        .then(res => {
+                          if (!res.ok) return res.json().then(d => { throw new Error(d.detail || "API error"); });
+                          return res.json();
+                        })
+                        .then(() => {
+                          triggerToast("Trader profile created.");
+                          refreshTradersList();
+                          setCrudModalMode('list');
+                        })
+                        .catch(() => {
+                          const exists = tradersList.some(x => x.trader_id === newTraderId);
+                          if (exists) {
+                            triggerToast("Trader ID already exists locally.");
+                            return;
+                          }
+                          setTradersList(prev => [...prev, { trader_id: newTraderId, name: newTraderName, role: newTraderRole, sector: newTraderSector, status: newTraderStatus }]);
+                          triggerToast("Trader profile created locally.");
+                          setCrudModalMode('list');
+                        });
+                      } else {
+                        fetch(`${BACKEND_URL}/api/v1/detect/traders/${newTraderId}`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ name: newTraderName, role: newTraderRole, sector: newTraderSector, status: newTraderStatus })
+                        })
+                        .then(res => {
+                          if (!res.ok) return res.json().then(d => { throw new Error(d.detail || "API error"); });
+                          return res.json();
+                        })
+                        .then(() => {
+                          triggerToast("Trader profile updated.");
+                          refreshTradersList();
+                          setCrudModalMode('list');
+                        })
+                        .catch(() => {
+                          setTradersList(prev => prev.map(x => x.trader_id === newTraderId ? { ...x, name: newTraderName, role: newTraderRole, sector: newTraderSector, status: newTraderStatus } : x));
+                          triggerToast("Trader profile updated locally.");
+                          setCrudModalMode('list');
+                        });
+                      }
+                    }}
+                  >
+                    Save Trader
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Policy Modal Dialog */}
+      {showEditPolicyModal && editingPolicy && (
+        <div className="modal-overlay" onClick={() => setShowEditPolicyModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ width: '380px', borderRadius: '4px' }}>
+            <div className="modal-header">
+              <span className="modal-title">Edit Automated Policy Rule</span>
+              <button className="modal-close-btn" onClick={() => setShowEditPolicyModal(false)}><X size={16} /></button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Rule Name</span>
+                <input 
+                  type="text" 
+                  className="modal-input" 
+                  style={{ fontSize: '11px', height: '28px', padding: '4px 8px' }}
+                  value={editingPolicy.name} 
+                  onChange={e => setEditingPolicy((prev: any) => ({ ...prev, name: e.target.value }))}
+                />
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Target Pattern</span>
+                  <select 
+                    className="anomaly-control-input" 
+                    style={{ fontSize: '11px', height: '28px' }}
+                    value={editingPolicy.pattern}
+                    onChange={e => setEditingPolicy((prev: any) => ({ ...prev, pattern: e.target.value }))}
+                  >
+                    <option value="SPOOFING">SPOOFING</option>
+                    <option value="LAYERING">LAYERING</option>
+                    <option value="WASH_TRADING">WASH TRADING</option>
+                    <option value="QUOTE_STUFFING">QUOTE STUFFING</option>
+                    <option value="PUMP_DUMP">PUMP & DUMP</option>
+                  </select>
+                </div>
+                <div>
+                  <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Min Severity</span>
+                  <select 
+                    className="anomaly-control-input" 
+                    style={{ fontSize: '11px', height: '28px' }}
+                    value={editingPolicy.severity}
+                    onChange={e => setEditingPolicy((prev: any) => ({ ...prev, severity: e.target.value }))}
+                  >
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Mitigation Response</span>
+                <select 
+                  className="anomaly-control-input" 
+                  style={{ fontSize: '11px', height: '28px' }}
+                  value={editingPolicy.action}
+                  onChange={e => setEditingPolicy((prev: any) => ({ ...prev, action: e.target.value }))}
+                >
+                  <option value="BLOCK_TRADER">BLOCK TRADER (Instant revoke)</option>
+                  <option value="ESCALATE">ESCALATE (L2 compliance review)</option>
+                  <option value="THROTTLE_RATE">THROTTLE RATE (Throttle Quote Ingress)</option>
+                  <option value="LOG_AUDIT">LOG AUDIT (SQLite database persist only)</option>
+                </select>
+              </div>
+
+              <div>
+                <span className="input-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Alert Channels</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
+                  {["Telegram", "SMTP", "Jira", "Teams"].map(ch => {
+                    const isChecked = editingPolicy.channels.includes(ch);
+                    return (
+                      <label key={ch} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', cursor: 'pointer', backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '3px' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={isChecked}
+                          onChange={() => {
+                            if (isChecked) {
+                              setEditingPolicy((prev: any) => ({
+                                ...prev,
+                                channels: prev.channels.filter((c: string) => c !== ch)
+                              }));
+                            } else {
+                              setEditingPolicy((prev: any) => ({
+                                ...prev,
+                                channels: [...prev.channels, ch]
+                              }));
+                            }
+                          }}
+                        />
+                        {ch}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer" style={{ padding: '10px 14px' }}>
+              <button className="modal-btn secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => setShowEditPolicyModal(false)}>Cancel</button>
+              <button 
+                className="modal-btn primary" 
+                style={{ fontSize: '11px', padding: '4px 10px' }} 
+                onClick={() => {
+                  if (!editingPolicy.name.trim()) {
+                    triggerToast("Rule Name is required.");
+                    return;
+                  }
+                  fetch(`${BACKEND_URL}/api/v1/detect/policies/${editingPolicy.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(editingPolicy)
+                  })
+                  .then(res => {
+                    if (!res.ok) throw new Error("API error");
+                    return res.json();
+                  })
+                  .then(() => {
+                    refreshPoliciesList();
+                    triggerToast(`Updated policy rule: ${editingPolicy.id}`);
+                    setShowEditPolicyModal(false);
+                    setEditingPolicy(null);
+                  })
+                  .catch(err => {
+                    console.error("Failed to update policy:", err);
+                    triggerToast("Failed to update policy in database.");
+                  });
+                }}
+              >
+                Save Changes
               </button>
             </div>
           </div>
